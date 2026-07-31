@@ -62,13 +62,17 @@
     font-weight: 700; cursor: pointer; user-select: none;
     display: flex; align-items: center; gap: 6px; justify-content: space-between;
   }
-  .legenda-cabecalho .fechar-x {
+  .fechar-x {
     width: 22px; height: 22px; border-radius: 50%; background: #e8e8e8;
     color: #444; display: flex; align-items: center; justify-content: center;
-    font-size: 13px; font-weight: 400; flex: 0 0 22px;
+    font-size: 13px; font-weight: 400; flex: 0 0 22px; cursor: pointer;
   }
-  .legenda-cabecalho .fechar-x:hover { background: #d0d0d0; }
+  .fechar-x:hover { background: #d0d0d0; }
   .legenda.fechada .fechar-x { display: none; }
+  .cabecalho-grupos {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; font-weight: 700; margin-bottom: 5px;
+  }
   .legenda-cabecalho .icone-fechada { display: none; line-height: 0; }
   .legenda.fechada .legenda-corpo { display: none; }
   /* Recolhida vira um botão quadrado, no mesmo padrão do controle de grupos */
@@ -116,7 +120,7 @@
 <body>
 <header>
   <h1>Situação dos Reservatórios — Nordeste e SIN</h1>
-  <span class="sub">Fonte: ANA (SAR) · Atualizado em 31/07/2026 17:33 · Faixas: Restrição &lt;20% · Atenção 20–50% · Normal &gt;50%</span>
+  <span class="sub">Fonte: ANA (SAR) · Atualizado em 31/07/2026 17:40 · Faixas: Restrição &lt;20% · Atenção 20–50% · Normal &gt;50%</span>
 </header>
 
 <div id="cards"></div>
@@ -228,9 +232,24 @@ function aplicarFiltro() {
 aplicarFiltro();
 
 Object.keys(camadas).forEach(function (k) { camadas[k].addTo(mapa); });
-// O controle de grupos é criado no evento load, quando o tamanho real da tela é conhecido
+// O controle de grupos é criado no evento load, quando o tamanho real da tela é
+// conhecido. No mobile ele recolhe APENAS pelo X (igual à legenda) — desligamos
+// o recolhimento nativo ao clicar no mapa.
 window.addEventListener("load", function () {
-  L.control.layers(null, camadas, {collapsed: window.innerWidth < 700, position: "topright"}).addTo(mapa);
+  var movel = window.innerWidth < 700;
+  var ctrlGrupos = L.control.layers(null, camadas, {collapsed: movel, position: "topright"}).addTo(mapa);
+  if (movel) {
+    mapa.off("click", ctrlGrupos.collapse, ctrlGrupos);
+    var form = ctrlGrupos.getContainer().querySelector(".leaflet-control-layers-list");
+    var cab = document.createElement("div");
+    cab.className = "cabecalho-grupos";
+    cab.innerHTML = "<span>Grupos</span><span class='fechar-x' title='Recolher grupos'>✕</span>";
+    form.insertBefore(cab, form.firstChild);
+    cab.querySelector(".fechar-x").addEventListener("click", function (e) {
+      L.DomEvent.stop(e);
+      ctrlGrupos.collapse();
+    });
+  }
 });
 
 // Cartões-resumo: contadores dinâmicos (refletem grupos ligados e o toggle de
@@ -285,7 +304,6 @@ atualizarPainel();
 mapa.on("overlayadd overlayremove", atualizarPainel);
 
 // Legenda (forma = grupo, cor = faixa) + opção de ocultar medições antigas
-var fecharLegendaSeMobile = function () {};
 var legenda = L.control({position: "bottomleft"});
 legenda.onAdd = function () {
   var div = L.DomUtil.create("div", "legenda");
@@ -331,21 +349,12 @@ legenda.onAdd = function () {
   var cabecalho = div.querySelector(".legenda-cabecalho");
   cabecalho.addEventListener("click", alternarLegenda);
   cabecalho.addEventListener("touchend", alternarLegenda);
-  // No mobile, tocar em QUALQUER lugar fora da legenda a recolhe (mesmo
-  // comportamento do controle de grupos nativo do Leaflet)
-  fecharLegendaSeMobile = function (e) {
-    if (window.innerWidth >= 700 || div.classList.contains("fechada")) return;
-    if (e && e.target && div.contains(e.target)) return;  // toque dentro dela não fecha
-    alternarLegenda();
-  };
-  document.addEventListener("pointerdown", fecharLegendaSeMobile, true);
   window.addEventListener("load", function () {
     if (window.innerWidth < 700 && !div.classList.contains("fechada")) alternarLegenda();
   });
   return div;
 };
 legenda.addTo(mapa);
-mapa.on("click dragstart zoomstart", function () { fecharLegendaSeMobile(); });
 
 // ---------- Exportação (respeita os filtros ativos) ----------
 function registrosVisiveis() {
