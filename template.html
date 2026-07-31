@@ -50,30 +50,38 @@
   .legenda, .exportar {
     background: rgba(255,255,255,.95); padding: 8px 11px; border-radius: 8px;
     box-shadow: 0 1px 4px rgba(0,0,0,.25); font-size: 12px; line-height: 1.55;
-    max-width: 250px;
   }
-  .legenda .item { display: flex; align-items: center; gap: 6px; }
+  .legenda { max-width: 350px; }
+  .legenda .item { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
   .legenda .quad { width: 11px; height: 11px; border-radius: 2px; flex: 0 0 11px; }
   .legenda .nota { font-size: 10px; color: #666; margin-top: 4px; }
   .legenda hr { border: none; border-top: 1px solid #ddd; margin: 5px 0; }
+  .legenda label { display: flex; align-items: center; gap: 5px; cursor: pointer; margin-top: 4px; }
 
   .exportar a {
     display: inline-block; margin-right: 8px; color: var(--azul);
-    font-weight: 600; text-decoration: none;
+    font-weight: 600; text-decoration: none; cursor: pointer;
   }
   .exportar a:hover { text-decoration: underline; }
+  .exportar .nota { font-size: 10px; color: #666; }
 
-  .popup-titulo { font-weight: 700; font-size: 13px; margin-bottom: 3px; }
-  .popup-det { font-size: 12px; color: #333; line-height: 1.55; }
+  /* Popup e tooltip com a mesma cara: título forte, valor grande, detalhes menores */
+  .popup-titulo { font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+  .popup-pct { font-size: 19px; font-weight: 700; line-height: 1.25; }
+  .popup-rot { font-size: 11px; font-weight: 400; color: #555; }
+  .popup-det { font-size: 11.5px; color: #333; line-height: 1.55; margin-top: 2px; }
   .popup-det b { font-weight: 600; }
   .leaflet-tooltip.tooltip-info {
-    padding: 7px 10px; line-height: 1.5; white-space: normal; max-width: 230px;
+    white-space: normal; width: max-content; max-width: 260px;
+    padding: 8px 11px; line-height: 1.4;
   }
 
   @media (max-width: 560px) {
     header h1 { font-size: 14px; }
     .card .num { font-size: 17px; }
     .card { min-width: 90px; padding: 5px 8px; }
+    .legenda { max-width: 260px; }
+    .legenda .item { white-space: normal; }
   }
 </style>
 </head>
@@ -87,6 +95,8 @@
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://unpkg.com/@mapbox/shp-write@0.4.3/shpwrite.js"></script>
 <script>
 var DADOS = $DADOS_JSON;
 
@@ -116,26 +126,36 @@ function fmt(v, casas) {
   return v.toLocaleString("pt-BR", {minimumFractionDigits: casas, maximumFractionDigits: casas});
 }
 
-// Popup enxuto: Nome + valor dinâmico por grupo + Estado + Data do Dado
+function valorRotulo(d) {
+  if (d.grupo === "Nordeste") return {valor: fmt(d.pct, 1), rotulo: "Volume (%)"};
+  if (d.grupo === "SIN - Reservatório") return {valor: fmt(d.pct, 1), rotulo: "Volume Útil (%)"};
+  return {valor: fmt(d.cota, 2), rotulo: "Nível (m)"};
+}
+
+// Conteúdo do popup/tooltip: Nome + valor dinâmico + Estado + Data do Dado
 function popupHtml(d) {
-  var h = "<div class='popup-titulo'>" + d.nome + "</div><div class='popup-det'>";
-  if (d.grupo === "Nordeste") {
-    h += "<b>Volume (%):</b> " + fmt(d.pct, 1) + "<br>";
-  } else if (d.grupo === "SIN - Reservatório") {
-    h += "<b>Volume Útil (%):</b> " + fmt(d.pct, 1) + "<br>";
-  } else {
-    h += "<b>Nível (m):</b> " + fmt(d.cota, 2) + "<br>";
-  }
-  h += "<b>Estado:</b> " + (d.uf || "–") + "<br>";
-  h += "<b>Data do Dado:</b> " + (d.data_med || "–");
-  h += "</div>";
+  var vr = valorRotulo(d);
+  var cor = CORES[d.faixa] || CORES["Sem dado"];
+  var corValor = d.faixa === "Atenção" ? "#b89200" : cor;  // amarelo puro não lê em fundo branco
+  var h = "<div class='popup-titulo'>" + d.nome + "</div>";
+  h += "<div class='popup-pct' style='color:" + corValor + "'>" + vr.valor +
+       " <span class='popup-rot'>" + vr.rotulo + "</span></div>";
+  h += "<div class='popup-det'><b>Estado:</b> " + (d.uf || "–") + "<br>" +
+       "<b>Data do Dado:</b> " + (d.data_med || "–") + "</div>";
   return h;
 }
 
-var BRASIL = [[-33.9, -74.1], [5.4, -34.6]];
-var mapa = L.map("map", {preferCanvas: false});
-mapa.fitBounds(BRASIL);  // enquadra o Brasil
-window.addEventListener("load", function () { mapa.invalidateSize(); mapa.fitBounds(BRASIL); });
+// Enquadramento inicial: retângulo dos próprios dados (zoom fracionado p/ ajuste fino)
+var mapa = L.map("map", {preferCanvas: false, zoomSnap: 0.25, zoomDelta: 0.5});
+var latitudes = DADOS.map(function (d) { return d.lat; });
+var longitudes = DADOS.map(function (d) { return d.lon; });
+var LIMITES = [
+  [Math.min.apply(null, latitudes), Math.min.apply(null, longitudes)],
+  [Math.max.apply(null, latitudes), Math.max.apply(null, longitudes)]
+];
+mapa.fitBounds(LIMITES, {padding: [24, 24]});
+window.addEventListener("load", function () { mapa.invalidateSize(); mapa.fitBounds(LIMITES, {padding: [24, 24]}); });
+
 L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
   attribution: "&copy; OpenStreetMap &copy; CARTO",
   maxZoom: 18
@@ -147,7 +167,7 @@ var camadas = {
   "SIN - Fio d'água": L.layerGroup()
 };
 
-// Cria todos os marcadores uma vez; o filtro por faixa decide quais entram nas camadas
+// Cria todos os marcadores uma vez; filtros decidem quais entram nas camadas
 var marcadores = [];
 DADOS.forEach(function (d) {
   var cor = CORES[d.faixa] || CORES["Sem dado"];
@@ -160,19 +180,20 @@ DADOS.forEach(function (d) {
   });
   var m = L.marker([d.lat, d.lon], {icon: icone});
   var conteudo = popupHtml(d);
-  m.bindTooltip(conteudo, {className: "tooltip-info", direction: "top", offset: [0, -9], sticky: false, opacity: 0.97});
-  m.bindPopup(conteudo, {maxWidth: 250});
+  m.bindTooltip(conteudo, {className: "tooltip-info", direction: "top", offset: [0, -9], opacity: 0.97});
+  m.bindPopup(conteudo, {maxWidth: 280});
   m.on("click", function () { m.closeTooltip(); });
-  marcadores.push({marker: m, grupo: d.grupo, faixa: d.faixa});
+  marcadores.push({marker: m, dado: d, grupo: d.grupo, faixa: d.faixa, antigo: antigo});
 });
 
-// Filtro por faixa (cartões clicáveis)
+// Filtros: por faixa (cartões) e por medição antiga (checkbox da legenda)
 var faixasAtivas = {"Restrição": true, "Atenção": true, "Normal": true, "Fio d'água": true, "Sem dado": true};
+var mostrarAntigos = true;
 
 function aplicarFiltro() {
   Object.keys(camadas).forEach(function (g) { camadas[g].clearLayers(); });
   marcadores.forEach(function (mk) {
-    if (faixasAtivas[mk.faixa]) camadas[mk.grupo].addLayer(mk.marker);
+    if (faixasAtivas[mk.faixa] && (mostrarAntigos || !mk.antigo)) camadas[mk.grupo].addLayer(mk.marker);
   });
 }
 aplicarFiltro();
@@ -180,7 +201,7 @@ aplicarFiltro();
 Object.keys(camadas).forEach(function (k) { camadas[k].addTo(mapa); });
 L.control.layers(null, camadas, {collapsed: false, position: "topright"}).addTo(mapa);
 
-// Cartões-resumo: mostram contagens e filtram a faixa ao clicar
+// Cartões-resumo: contagens + filtro por faixa ao clicar
 var contagens = {"Restrição": 0, "Atenção": 0, "Normal": 0, "Fio d'água": 0, "Sem dado": 0};
 DADOS.forEach(function (d) { contagens[d.faixa] += 1; });
 var cardsDiv = document.getElementById("cards");
@@ -202,7 +223,7 @@ var cardsDiv = document.getElementById("cards");
   cardsDiv.appendChild(el);
 });
 
-// Legenda (forma = grupo, cor = faixa)
+// Legenda (forma = grupo, cor = faixa) + opção de ocultar medições antigas
 var legenda = L.control({position: "bottomleft"});
 legenda.onAdd = function () {
   var div = L.DomUtil.create("div", "legenda");
@@ -217,19 +238,129 @@ legenda.onAdd = function () {
   h += "<div class='item'>" + svgMarcador("Nordeste", "#888") + "Nordeste — Volume (%)</div>";
   h += "<div class='item'>" + svgMarcador("SIN - Reservatório", "#888") + "SIN — UHE c/ reservatório — Volume Útil (%)</div>";
   h += "<div class='item'>" + svgMarcador("SIN - Fio d'água", "#888") + "SIN — UHE a fio d'água — Nível (m)</div>";
-  h += "<div class='nota'>Marcador esmaecido: medição há mais de 30 dias.<br>Passe o mouse para ver os dados; clique fixa.</div>";
+  h += "<label><input type='checkbox' id='chk-antigos' checked> Exibir medições com mais de 30 dias (esmaecidas)</label>";
+  h += "<div class='nota'>Passe o mouse para ver os dados; clique fixa.</div>";
   div.innerHTML = h;
+  L.DomEvent.disableClickPropagation(div);
+  div.querySelector("#chk-antigos").addEventListener("change", function () {
+    mostrarAntigos = this.checked;
+    aplicarFiltro();
+  });
   return div;
 };
 legenda.addTo(mapa);
 
-// Downloads (arquivos gerados junto com o mapa)
+// ---------- Exportação (respeita os filtros ativos) ----------
+function registrosVisiveis() {
+  return marcadores.filter(function (mk) {
+    return faixasAtivas[mk.faixa] && (mostrarAntigos || !mk.antigo) && mapa.hasLayer(camadas[mk.grupo]);
+  }).map(function (mk) { return mk.dado; });
+}
+
+function baixarBlob(blob, nome) {
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = nome;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+
+var KML_CORES = {  // aabbggrr
+  "Restrição": "ff0000c0", "Atenção": "ff0fc8f2", "Normal": "ff107c10",
+  "Fio d'água": "ff6d6b5f", "Sem dado": "ff9e9e9e"
+};
+var KML_ICONES = {
+  "Nordeste": "http://maps.google.com/mapfiles/kml/shapes/placemark_square.png",
+  "SIN - Reservatório": "http://maps.google.com/mapfiles/kml/shapes/triangle.png",
+  "SIN - Fio d'água": "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png"
+};
+
+function xmlEsc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function kmlDosVisiveis() {
+  var regs = registrosVisiveis();
+  var estilos = {}, pastas = {};
+  regs.forEach(function (d) {
+    var sid = "s" + Object.keys(KML_ICONES).indexOf(d.grupo) + "_" +
+              Object.keys(KML_CORES).indexOf(d.faixa);
+    if (!estilos[sid]) {
+      estilos[sid] = "<Style id='" + sid + "'><IconStyle><color>" +
+        (KML_CORES[d.faixa] || KML_CORES["Sem dado"]) + "</color><scale>0.9</scale><Icon><href>" +
+        KML_ICONES[d.grupo] + "</href></Icon></IconStyle><LabelStyle><scale>0</scale></LabelStyle></Style>";
+    }
+    var vr = valorRotulo(d);
+    var desc = "<b>" + vr.rotulo + ":</b> " + vr.valor + "<br/><b>Estado:</b> " + xmlEsc(d.uf || "–") +
+               "<br/><b>Data do Dado:</b> " + xmlEsc(d.data_med || "–");
+    if (!pastas[d.grupo]) pastas[d.grupo] = [];
+    pastas[d.grupo].push("<Placemark><name>" + xmlEsc(d.nome) + "</name><styleUrl>#" + sid +
+      "</styleUrl><description><![CDATA[" + desc + "]]></description><Point><coordinates>" +
+      d.lon + "," + d.lat + ",0</coordinates></Point></Placemark>");
+  });
+  var corpo = Object.keys(pastas).map(function (g) {
+    return "<Folder><name>" + xmlEsc(g) + "</name>" + pastas[g].join("") + "</Folder>";
+  }).join("");
+  return "<?xml version='1.0' encoding='UTF-8'?>" +
+    "<kml xmlns='http://www.opengis.net/kml/2.2'><Document>" +
+    "<name>Situação dos Reservatórios — Nordeste e SIN</name>" +
+    Object.keys(estilos).map(function (k) { return estilos[k]; }).join("") + corpo +
+    "</Document></kml>";
+}
+
+function exportarKMZ() {
+  if (typeof JSZip === "undefined") { window.location.href = "reservatorios.kmz"; return; }
+  var zip = new JSZip();
+  zip.file("doc.kml", kmlDosVisiveis());
+  zip.generateAsync({type: "blob", compression: "DEFLATE"}).then(function (blob) {
+    baixarBlob(blob, "reservatorios.kmz");
+  });
+}
+
+function geojsonDosVisiveis() {
+  return {
+    type: "FeatureCollection",
+    features: registrosVisiveis().map(function (d) {
+      var vr = valorRotulo(d);
+      return {
+        type: "Feature",
+        geometry: {type: "Point", coordinates: [d.lon, d.lat]},
+        properties: {
+          nome: d.nome, grupo: d.grupo, faixa: d.faixa,
+          valor: d.grupo === "SIN - Fio d'água" ? d.cota : d.pct,
+          unidade: d.grupo === "SIN - Fio d'água" ? "m" : "%",
+          uf: d.uf || "", data_dado: d.data_med || ""
+        }
+      };
+    })
+  };
+}
+
+function exportarSHP() {
+  if (typeof shpwrite === "undefined") { window.location.href = "reservatorios_shp.zip"; return; }
+  try {
+    var opcoes = {outputType: "blob", compression: "DEFLATE", types: {point: "reservatorios"}};
+    var resultado = shpwrite.zip(geojsonDosVisiveis(), opcoes);
+    Promise.resolve(resultado).then(function (saida) {
+      if (saida instanceof Blob) { baixarBlob(saida, "reservatorios_shp.zip"); return; }
+      // versões antigas devolvem base64
+      var bin = atob(saida);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      baixarBlob(new Blob([bytes], {type: "application/zip"}), "reservatorios_shp.zip");
+    }).catch(function () { window.location.href = "reservatorios_shp.zip"; });
+  } catch (e) { window.location.href = "reservatorios_shp.zip"; }
+}
+
 var exportar = L.control({position: "bottomright"});
 exportar.onAdd = function () {
   var div = L.DomUtil.create("div", "exportar");
-  div.innerHTML = "<b>Baixar:</b> " +
-    "<a href='reservatorios.kmz' download>KMZ</a>" +
-    "<a href='reservatorios_shp.zip' download>Shapefile</a>";
+  div.innerHTML = "<b>Baixar:</b> <a id='exp-kmz'>KMZ</a><a id='exp-shp'>Shapefile</a>" +
+                  "<div class='nota'>respeita os filtros ativos</div>";
+  L.DomEvent.disableClickPropagation(div);
+  div.querySelector("#exp-kmz").addEventListener("click", exportarKMZ);
+  div.querySelector("#exp-shp").addEventListener("click", exportarSHP);
   return div;
 };
 exportar.addTo(mapa);
