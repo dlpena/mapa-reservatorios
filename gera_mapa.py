@@ -68,6 +68,7 @@ WHERE (SAR_TIPO_SISTEMA = 'NORDESTE'
        OR (SAR_TIPO_SISTEMA = 'SIN'
            AND SAR_TIPO_RESERVATORIO IN ('Usina com Reservatório', 'Usina a Fio dÁgua')))
   AND SAR_LATITUDE IS NOT NULL AND SAR_LONGITUDE IS NOT NULL
+  AND SAR_ULT_DATAMEDICAO <= GETDATE()  -- descarta datas futuras (erro na fonte)
 """
 
 

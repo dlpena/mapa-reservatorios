@@ -63,8 +63,16 @@
     display: flex; align-items: center; gap: 6px;
   }
   .legenda-cabecalho .seta { font-size: 10px; color: #666; }
+  .legenda-cabecalho .icone-fechada { display: none; line-height: 0; }
   .legenda.fechada .legenda-corpo { display: none; }
-  .legenda.fechada { padding: 6px 11px; }
+  /* Recolhida vira um botão quadrado, no mesmo padrão do controle de grupos */
+  .legenda.fechada {
+    padding: 0; width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .legenda.fechada .legenda-cabecalho { justify-content: center; width: 100%; height: 100%; }
+  .legenda.fechada .titulo, .legenda.fechada .seta { display: none; }
+  .legenda.fechada .icone-fechada { display: block; }
   .legenda-corpo { max-height: 60vh; overflow-y: auto; }
   .legenda .item { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
   .legenda .quad { width: 11px; height: 11px; border-radius: 2px; flex: 0 0 11px; }
@@ -271,10 +279,16 @@ atualizarPainel();
 mapa.on("overlayadd overlayremove", atualizarPainel);
 
 // Legenda (forma = grupo, cor = faixa) + opção de ocultar medições antigas
+var fecharLegendaSeMobile = function () {};
 var legenda = L.control({position: "bottomleft"});
 legenda.onAdd = function () {
   var div = L.DomUtil.create("div", "legenda");
-  var h = "<div class='legenda-cabecalho'>Legenda <span class='seta'>▼</span></div>";
+  var iconeLegenda = "<svg width='22' height='22' xmlns='http://www.w3.org/2000/svg'>" +
+    "<rect x='1' y='2' width='6' height='6' rx='1' fill='#C00000'/><rect x='10' y='3.5' width='11' height='3' rx='1.5' fill='#8a8a8a'/>" +
+    "<rect x='1' y='9' width='6' height='6' rx='1' fill='#F2C80F'/><rect x='10' y='10.5' width='11' height='3' rx='1.5' fill='#8a8a8a'/>" +
+    "<rect x='1' y='16' width='6' height='6' rx='1' fill='#107C10'/><rect x='10' y='17.5' width='11' height='3' rx='1.5' fill='#8a8a8a'/></svg>";
+  var h = "<div class='legenda-cabecalho' title='Legenda'><span class='icone-fechada'>" + iconeLegenda +
+          "</span><span class='titulo'>Legenda</span> <span class='seta'>▼</span></div>";
   h += "<div class='legenda-corpo'>";
   h += "<b>Cor — faixa</b>";
   [["Restrição (&lt;20%)", CORES["Restrição"]],
@@ -313,12 +327,18 @@ legenda.onAdd = function () {
   var cabecalho = div.querySelector(".legenda-cabecalho");
   cabecalho.addEventListener("click", alternarLegenda);
   cabecalho.addEventListener("touchend", alternarLegenda);
+  // No mobile, interagir com o mapa recolhe a legenda (mesmo comportamento
+  // do controle de grupos nativo do Leaflet)
+  fecharLegendaSeMobile = function () {
+    if (window.innerWidth < 700 && !div.classList.contains("fechada")) alternarLegenda();
+  };
   window.addEventListener("load", function () {
     if (window.innerWidth < 700 && !div.classList.contains("fechada")) alternarLegenda();
   });
   return div;
 };
 legenda.addTo(mapa);
+mapa.on("click dragstart zoomstart", function () { fecharLegendaSeMobile(); });
 
 // ---------- Exportação (respeita os filtros ativos) ----------
 function registrosVisiveis() {
