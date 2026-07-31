@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Situação dos Reservatórios — Nordeste e SIN</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --restricao: #C00000; --atencao: #F2C80F; --normal: #107C10;
+    --fio: #5F6B6D; --semdado: #9E9E9E; --azul: #123F6D;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: "Segoe UI", Arial, sans-serif; }
+  body { display: flex; flex-direction: column; }
+
+  header {
+    background: var(--azul); color: #fff; padding: 10px 16px;
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px;
+  }
+  header h1 { font-size: 17px; font-weight: 600; }
+  header .sub { font-size: 12px; opacity: .85; }
+
+  #cards {
+    display: flex; gap: 8px; padding: 8px 12px; background: #f2f4f7;
+    flex-wrap: wrap; border-bottom: 1px solid #dde1e7;
+  }
+  .card {
+    flex: 1 1 110px; min-width: 110px; background: #fff; border-radius: 8px;
+    padding: 6px 10px; border-left: 5px solid #ccc;
+    box-shadow: 0 1px 2px rgba(0,0,0,.08);
+  }
+  .card .num { font-size: 21px; font-weight: 700; line-height: 1.1; }
+  .card .rot { font-size: 11px; color: #555; }
+  .card.restricao { border-color: var(--restricao); }
+  .card.atencao   { border-color: var(--atencao); }
+  .card.normal    { border-color: var(--normal); }
+  .card.fio       { border-color: var(--fio); }
+
+  #map { flex: 1; min-height: 300px; }
+
+  .marcador svg { display: block; }
+  .esmaecido { opacity: .40; }
+
+  .legenda {
+    background: rgba(255,255,255,.95); padding: 8px 11px; border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.25); font-size: 12px; line-height: 1.55;
+    max-width: 230px;
+  }
+  .legenda b { font-size: 12px; }
+  .legenda .item { display: flex; align-items: center; gap: 6px; }
+  .legenda .quad { width: 11px; height: 11px; border-radius: 2px; flex: 0 0 11px; }
+  .legenda .nota { font-size: 10px; color: #666; margin-top: 4px; }
+  .legenda hr { border: none; border-top: 1px solid #ddd; margin: 5px 0; }
+
+  .popup-titulo { font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+  .popup-badge {
+    display: inline-block; color: #fff; border-radius: 4px;
+    padding: 1px 7px; font-size: 11px; font-weight: 600; margin: 2px 0 4px;
+  }
+  .popup-pct { font-size: 19px; font-weight: 700; }
+  .popup-det { font-size: 11.5px; color: #444; line-height: 1.5; }
+  .popup-alerta { color: #b00; font-size: 11px; font-weight: 600; }
+
+  @media (max-width: 560px) {
+    header h1 { font-size: 14px; }
+    .card .num { font-size: 17px; }
+    .card { min-width: 90px; padding: 5px 8px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Situação dos Reservatórios — Nordeste e SIN</h1>
+  <span class="sub">Fonte: ANA (SAR) · Atualizado em $GERADO_EM · Faixas: Restrição &lt;20% · Atenção 20–50% · Normal &gt;50%</span>
+</header>
+
+<div id="cards"></div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+var DADOS = $DADOS_JSON;
+
+var CORES = {
+  "Restrição": "#C00000",
+  "Atenção":   "#F2C80F",
+  "Normal":    "#107C10",
+  "Fio d'água":"#5F6B6D",
+  "Sem dado":  "#9E9E9E"
+};
+
+function svgMarcador(grupo, cor) {
+  var s = "";
+  if (grupo === "Nordeste") {
+    s = "<circle cx='8' cy='8' r='5.5' fill='" + cor + "' stroke='white' stroke-width='1.6'/>";
+  } else if (grupo === "SIN - Reservatório") {
+    s = "<rect x='2.5' y='2.5' width='11' height='11' fill='" + cor + "' stroke='white' stroke-width='1.6'/>";
+  } else {
+    s = "<polygon points='8,1.5 14.8,14 1.2,14' fill='" + cor + "' stroke='white' stroke-width='1.6'/>";
+  }
+  return "<svg width='16' height='16' xmlns='http://www.w3.org/2000/svg'>" + s + "</svg>";
+}
+
+function fmt(v, casas) {
+  if (v === null || v === undefined) return "–";
+  return v.toLocaleString("pt-BR", {minimumFractionDigits: casas, maximumFractionDigits: casas});
+}
+
+function popupHtml(d) {
+  var h = "<div class='popup-titulo'>" + d.nome + "</div>";
+  h += "<span class='popup-badge' style='background:" + CORES[d.faixa] + (d.faixa === "Atenção" ? ";color:#333" : "") + "'>" + d.faixa + "</span>";
+  if (d.pct !== null && d.pct !== undefined) {
+    var rotulo = d.grupo === "Nordeste" ? "Volume (%)" : "Volume Útil (%)";
+    h += "<div class='popup-pct'>" + fmt(d.pct, 1) + "% <span style='font-size:11px;font-weight:400'>" + rotulo + "</span></div>";
+  }
+  h += "<div class='popup-det'>";
+  h += d.grupo + (d.uf ? " · " + d.uf : "") + "<br>";
+  if (d.rio) h += d.rio + (d.bacia ? " (" + d.bacia + ")" : "") + "<br>";
+  if (d.grupo === "SIN - Fio d'água") {
+    h += "Cota: " + fmt(d.cota, 2) + " m<br>";
+    h += "Afluência: " + fmt(d.afl, 1) + " m³/s · Defluência: " + fmt(d.defl, 1) + " m³/s<br>";
+  }
+  h += "Medição: " + (d.data_med || "–");
+  h += "</div>";
+  if (d.dias !== null && d.dias > 30) {
+    h += "<div class='popup-alerta'>Medição há " + d.dias + " dias (desatualizada)</div>";
+  }
+  return h;
+}
+
+var mapa = L.map("map", {preferCanvas: false}).setView([-13.5, -50], 4);
+L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+  attribution: "&copy; OpenStreetMap &copy; CARTO",
+  maxZoom: 18
+}).addTo(mapa);
+
+var camadas = {
+  "Nordeste": L.layerGroup(),
+  "SIN - Reservatório": L.layerGroup(),
+  "SIN - Fio d'água": L.layerGroup()
+};
+
+DADOS.forEach(function (d) {
+  var cor = CORES[d.faixa] || CORES["Sem dado"];
+  var antigo = d.dias !== null && d.dias > 30;
+  var icone = L.divIcon({
+    className: "marcador" + (antigo ? " esmaecido" : ""),
+    html: svgMarcador(d.grupo, cor),
+    iconSize: [16, 16],
+    iconAnchor: [8, 8]
+  });
+  var m = L.marker([d.lat, d.lon], {icon: icone});
+  m.bindTooltip(d.nome, {direction: "top", offset: [0, -8]});
+  m.bindPopup(popupHtml(d), {maxWidth: 260});
+  camadas[d.grupo].addLayer(m);
+});
+
+Object.keys(camadas).forEach(function (k) { camadas[k].addTo(mapa); });
+L.control.layers(null, camadas, {collapsed: false, position: "topright"}).addTo(mapa);
+
+// Cartões-resumo (contagens sobre o total carregado)
+var contagens = {"Restrição": 0, "Atenção": 0, "Normal": 0, "Fio d'água": 0, "Sem dado": 0};
+DADOS.forEach(function (d) { contagens[d.faixa] += 1; });
+var cardsDiv = document.getElementById("cards");
+[
+  {rot: "Restrição (<20%)", cls: "restricao", n: contagens["Restrição"]},
+  {rot: "Atenção (20–50%)", cls: "atencao", n: contagens["Atenção"]},
+  {rot: "Normal (>50%)", cls: "normal", n: contagens["Normal"]},
+  {rot: "Fio d'água (sem classificação)", cls: "fio", n: contagens["Fio d'água"]}
+].forEach(function (c) {
+  var el = document.createElement("div");
+  el.className = "card " + c.cls;
+  el.innerHTML = "<div class='num'>" + c.n + "</div><div class='rot'>" + c.rot + "</div>";
+  cardsDiv.appendChild(el);
+});
+
+// Legenda (forma = grupo, cor = faixa)
+var legenda = L.control({position: "bottomleft"});
+legenda.onAdd = function () {
+  var div = L.DomUtil.create("div", "legenda");
+  var h = "<b>Cor — faixa</b>";
+  [["Restrição (&lt;20%)", CORES["Restrição"]],
+   ["Atenção (20–50%)", CORES["Atenção"]],
+   ["Normal (&gt;50%)", CORES["Normal"]],
+   ["Fio d'água (sem classificação)", CORES["Fio d'água"]]].forEach(function (par) {
+    h += "<div class='item'><span class='quad' style='background:" + par[1] + "'></span>" + par[0] + "</div>";
+  });
+  h += "<hr><b>Forma — grupo</b>";
+  h += "<div class='item'>" + svgMarcador("Nordeste", "#888") + "Nordeste — Volume (%)</div>";
+  h += "<div class='item'>" + svgMarcador("SIN - Reservatório", "#888") + "SIN — UHE c/ reservatório — Volume Útil (%)</div>";
+  h += "<div class='item'>" + svgMarcador("SIN - Fio d'água", "#888") + "SIN — UHE a fio d'água</div>";
+  h += "<div class='nota'>Marcador esmaecido: medição há mais de 30 dias.</div>";
+  div.innerHTML = h;
+  return div;
+};
+legenda.addTo(mapa);
+</script>
+</body>
+</html>
