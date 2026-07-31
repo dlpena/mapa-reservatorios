@@ -29,46 +29,62 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
 )
 
+# Fonte: dbo.medicaodado (última medição por reservatório) + cadastro em
+# dbo.caract_reservatorio. NÃO usar dbo.vw_reservatoriopnt: ela fica ~1 dia
+# atrás da medicaodado (constatado em 31/07/2026 — SIN 29/07 na view vs 30/07
+# na tabela). Regras: datas futuras descartadas (erro na fonte); NE/UHE exigem
+# o valor relevante preenchido (volume/VU) — fio d'água entra mesmo sem cota
+# (ex.: Teles Pires não reporta cota).
 SQL = """
+WITH cad AS (
+    SELECT c.*, ROW_NUMBER() OVER (PARTITION BY c.res_id ORDER BY c.mun_cod_ibge) AS rn_cad
+    FROM dbo.caract_reservatorio c
+),
+base AS (
+    SELECT
+        c.tsi_nome, c.tre_nome, c.res_nome, c.est_sigla, c.rio_nome, c.bac_nome,
+        c.res_capacidade,
+        TRY_CAST(REPLACE(c.res_latitude, ',', '.') AS float) AS lat,
+        TRY_CAST(REPLACE(c.res_longitude, ',', '.') AS float) AS lon,
+        m.med_data_medicao, m.med_volume, m.med_vol_util, m.med_cota,
+        ROW_NUMBER() OVER (PARTITION BY m.med_res_id ORDER BY m.med_data_medicao DESC) AS rn
+    FROM dbo.medicaodado m
+    JOIN cad c ON c.res_id = m.med_res_id AND c.rn_cad = 1
+    WHERE m.med_data_medicao <= GETDATE()
+      AND TRY_CAST(REPLACE(c.res_latitude, ',', '.') AS float) IS NOT NULL
+      AND TRY_CAST(REPLACE(c.res_longitude, ',', '.') AS float) IS NOT NULL
+      AND (c.tsi_nome = 'NORDESTE'
+           OR (c.tsi_nome = 'SIN' AND c.tre_nome IN ('Usina com Reservatório', 'Usina a Fio dÁgua')))
+      AND (c.tre_nome = 'Usina a Fio dÁgua'
+           OR (CASE WHEN c.tsi_nome = 'NORDESTE' THEN m.med_volume
+                    ELSE m.med_vol_util END) IS NOT NULL)
+)
 SELECT
-    CASE
-        WHEN SAR_TIPO_SISTEMA = 'NORDESTE' THEN 'Nordeste'
-        WHEN SAR_TIPO_RESERVATORIO = 'Usina a Fio dÁgua' THEN 'SIN - Fio d''água'
-        ELSE 'SIN - Reservatório'
-    END AS grupo,
-    LTRIM(RTRIM(SAR_RES_NOME))          AS nome,
-    LTRIM(RTRIM(SAR_TIPO_RESERVATORIO)) AS tipo,
-    LTRIM(RTRIM(SAR_SG_UF))             AS uf,
-    LTRIM(RTRIM(SAR_RIO_NOME))          AS rio,
-    LTRIM(RTRIM(SAR_BACIA_NOME))        AS bacia,
-    SAR_LATITUDE                        AS lat,
-    SAR_LONGITUDE                       AS lon,
-    ROUND(CASE
-        WHEN SAR_TIPO_SISTEMA = 'NORDESTE' THEN SAR_PC_VOLUME
-        WHEN SAR_TIPO_RESERVATORIO = 'Usina a Fio dÁgua' THEN NULL
-        ELSE SAR_ULT_VOLUME_UTIL
-    END, 1) AS pct,
-    CASE
-        WHEN SAR_TIPO_RESERVATORIO = 'Usina a Fio dÁgua' THEN 'Fio d''água'
-        WHEN (CASE WHEN SAR_TIPO_SISTEMA = 'NORDESTE' THEN SAR_PC_VOLUME
-                   ELSE SAR_ULT_VOLUME_UTIL END) IS NULL THEN 'Sem dado'
-        WHEN (CASE WHEN SAR_TIPO_SISTEMA = 'NORDESTE' THEN SAR_PC_VOLUME
-                   ELSE SAR_ULT_VOLUME_UTIL END) < 20 THEN 'Restrição'
-        WHEN (CASE WHEN SAR_TIPO_SISTEMA = 'NORDESTE' THEN SAR_PC_VOLUME
-                   ELSE SAR_ULT_VOLUME_UTIL END) <= 50 THEN 'Atenção'
-        ELSE 'Normal'
-    END AS faixa,
-    ROUND(SAR_ULT_COTA, 2)              AS cota,
-    ROUND(SAR_ULT_AFLUENCIA, 1)         AS afl,
-    ROUND(SAR_ULT_DEFLUENCIA, 1)        AS defl,
-    CONVERT(varchar(10), SAR_ULT_DATAMEDICAO, 103) AS data_med,
-    DATEDIFF(day, SAR_ULT_DATAMEDICAO, GETDATE()) AS dias
-FROM dbo.vw_reservatoriopnt
-WHERE (SAR_TIPO_SISTEMA = 'NORDESTE'
-       OR (SAR_TIPO_SISTEMA = 'SIN'
-           AND SAR_TIPO_RESERVATORIO IN ('Usina com Reservatório', 'Usina a Fio dÁgua')))
-  AND SAR_LATITUDE IS NOT NULL AND SAR_LONGITUDE IS NOT NULL
-  AND SAR_ULT_DATAMEDICAO <= GETDATE()  -- descarta datas futuras (erro na fonte)
+    CASE WHEN tsi_nome = 'NORDESTE' THEN 'Nordeste'
+         WHEN tre_nome = 'Usina a Fio dÁgua' THEN 'SIN - Fio d''água'
+         ELSE 'SIN - Reservatório' END AS grupo,
+    LTRIM(RTRIM(res_nome))  AS nome,
+    LTRIM(RTRIM(tre_nome))  AS tipo,
+    LTRIM(RTRIM(est_sigla)) AS uf,
+    LTRIM(RTRIM(rio_nome))  AS rio,
+    LTRIM(RTRIM(bac_nome))  AS bacia,
+    lat, lon,
+    ROUND(CASE WHEN tsi_nome = 'NORDESTE' THEN med_volume / NULLIF(res_capacidade, 0) * 100
+               WHEN tre_nome = 'Usina a Fio dÁgua' THEN NULL
+               ELSE med_vol_util END, 1) AS pct,
+    CASE WHEN tre_nome = 'Usina a Fio dÁgua' THEN 'Fio d''água'
+         WHEN (CASE WHEN tsi_nome = 'NORDESTE' THEN med_volume / NULLIF(res_capacidade, 0) * 100
+                    ELSE med_vol_util END) IS NULL THEN 'Sem dado'
+         WHEN (CASE WHEN tsi_nome = 'NORDESTE' THEN med_volume / NULLIF(res_capacidade, 0) * 100
+                    ELSE med_vol_util END) < 20 THEN 'Restrição'
+         WHEN (CASE WHEN tsi_nome = 'NORDESTE' THEN med_volume / NULLIF(res_capacidade, 0) * 100
+                    ELSE med_vol_util END) <= 50 THEN 'Atenção'
+         ELSE 'Normal' END AS faixa,
+    ROUND(med_cota, 2) AS cota,
+    CONVERT(varchar(10), med_data_medicao, 103) AS data_med,
+    DATEDIFF(day, med_data_medicao, GETDATE()) AS dias
+FROM base
+WHERE rn = 1
 """
 
 
