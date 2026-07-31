@@ -52,6 +52,13 @@
     box-shadow: 0 1px 4px rgba(0,0,0,.25); font-size: 12px; line-height: 1.55;
   }
   .legenda { max-width: 350px; }
+  .legenda-cabecalho {
+    font-weight: 700; cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .legenda-cabecalho .seta { font-size: 10px; color: #666; }
+  .legenda.fechada .legenda-corpo { display: none; }
+  .legenda.fechada { padding: 6px 11px; }
   .legenda .item { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
   .legenda .quad { width: 11px; height: 11px; border-radius: 2px; flex: 0 0 11px; }
   .legenda .nota { font-size: 10px; color: #666; margin-top: 4px; }
@@ -88,7 +95,7 @@
 <body>
 <header>
   <h1>Situação dos Reservatórios — Nordeste e SIN</h1>
-  <span class="sub">Fonte: ANA (SAR) · Atualizado em 31/07/2026 16:59 · Faixas: Restrição &lt;20% · Atenção 20–50% · Normal &gt;50%</span>
+  <span class="sub">Fonte: ANA (SAR) · Atualizado em 31/07/2026 17:12 · Faixas: Restrição &lt;20% · Atenção 20–50% · Normal &gt;50%</span>
 </header>
 
 <div id="cards"></div>
@@ -199,7 +206,10 @@ function aplicarFiltro() {
 aplicarFiltro();
 
 Object.keys(camadas).forEach(function (k) { camadas[k].addTo(mapa); });
-L.control.layers(null, camadas, {collapsed: false, position: "topright"}).addTo(mapa);
+// O controle de grupos é criado no evento load, quando o tamanho real da tela é conhecido
+window.addEventListener("load", function () {
+  L.control.layers(null, camadas, {collapsed: window.innerWidth < 700, position: "topright"}).addTo(mapa);
+});
 
 // Cartões-resumo: contagens + filtro por faixa ao clicar
 var contagens = {"Restrição": 0, "Atenção": 0, "Normal": 0, "Fio d'água": 0, "Sem dado": 0};
@@ -227,7 +237,9 @@ var cardsDiv = document.getElementById("cards");
 var legenda = L.control({position: "bottomleft"});
 legenda.onAdd = function () {
   var div = L.DomUtil.create("div", "legenda");
-  var h = "<b>Cor — faixa</b>";
+  var h = "<div class='legenda-cabecalho'>Legenda <span class='seta'>▼</span></div>";
+  h += "<div class='legenda-corpo'>";
+  h += "<b>Cor — faixa</b>";
   [["Restrição (&lt;20%)", CORES["Restrição"]],
    ["Atenção (20–50%)", CORES["Atenção"]],
    ["Normal (&gt;50%)", CORES["Normal"]],
@@ -240,11 +252,22 @@ legenda.onAdd = function () {
   h += "<div class='item'>" + svgMarcador("SIN - Fio d'água", "#888") + "SIN — UHE a fio d'água — Nível (m)</div>";
   h += "<label><input type='checkbox' id='chk-antigos' checked> Exibir medições com mais de 30 dias (esmaecidas)</label>";
   h += "<div class='nota'>Passe o mouse para ver os dados; clique fixa.</div>";
+  h += "</div>";
   div.innerHTML = h;
   L.DomEvent.disableClickPropagation(div);
   div.querySelector("#chk-antigos").addEventListener("change", function () {
     mostrarAntigos = this.checked;
     aplicarFiltro();
+  });
+  // Em telas pequenas a legenda começa recolhida para não cobrir o mapa
+  var seta = div.querySelector(".seta");
+  function alternarLegenda() {
+    var fechada = div.classList.toggle("fechada");
+    seta.textContent = fechada ? "▶" : "▼";
+  }
+  div.querySelector(".legenda-cabecalho").addEventListener("click", alternarLegenda);
+  window.addEventListener("load", function () {
+    if (window.innerWidth < 700 && !div.classList.contains("fechada")) alternarLegenda();
   });
   return div;
 };
