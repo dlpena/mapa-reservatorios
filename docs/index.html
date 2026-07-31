@@ -60,9 +60,15 @@
   .legenda { max-width: 350px; }
   .legenda-cabecalho {
     font-weight: 700; cursor: pointer; user-select: none;
-    display: flex; align-items: center; gap: 6px;
+    display: flex; align-items: center; gap: 6px; justify-content: space-between;
   }
-  .legenda-cabecalho .seta { font-size: 10px; color: #666; }
+  .legenda-cabecalho .fechar-x {
+    width: 22px; height: 22px; border-radius: 50%; background: #e8e8e8;
+    color: #444; display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 400; flex: 0 0 22px;
+  }
+  .legenda-cabecalho .fechar-x:hover { background: #d0d0d0; }
+  .legenda.fechada .fechar-x { display: none; }
   .legenda-cabecalho .icone-fechada { display: none; line-height: 0; }
   .legenda.fechada .legenda-corpo { display: none; }
   /* Recolhida vira um botão quadrado, no mesmo padrão do controle de grupos */
@@ -110,7 +116,7 @@
 <body>
 <header>
   <h1>Situação dos Reservatórios — Nordeste e SIN</h1>
-  <span class="sub">Fonte: ANA (SAR) · Atualizado em 31/07/2026 17:25 · Faixas: Restrição &lt;20% · Atenção 20–50% · Normal &gt;50%</span>
+  <span class="sub">Fonte: ANA (SAR) · Atualizado em 31/07/2026 17:33 · Faixas: Restrição &lt;20% · Atenção 20–50% · Normal &gt;50%</span>
 </header>
 
 <div id="cards"></div>
@@ -288,7 +294,7 @@ legenda.onAdd = function () {
     "<rect x='1' y='9' width='6' height='6' rx='1' fill='#F2C80F'/><rect x='10' y='10.5' width='11' height='3' rx='1.5' fill='#8a8a8a'/>" +
     "<rect x='1' y='16' width='6' height='6' rx='1' fill='#107C10'/><rect x='10' y='17.5' width='11' height='3' rx='1.5' fill='#8a8a8a'/></svg>";
   var h = "<div class='legenda-cabecalho' title='Legenda'><span class='icone-fechada'>" + iconeLegenda +
-          "</span><span class='titulo'>Legenda</span> <span class='seta'>▼</span></div>";
+          "</span><span class='titulo'>Legenda</span><span class='fechar-x' title='Recolher legenda'>✕</span></div>";
   h += "<div class='legenda-corpo'>";
   h += "<b>Cor — faixa</b>";
   [["Restrição (&lt;20%)", CORES["Restrição"]],
@@ -314,24 +320,25 @@ legenda.onAdd = function () {
   // Em telas pequenas a legenda começa recolhida para não cobrir o mapa.
   // O bloqueio de 350ms evita o toque duplo sintetizado no mobile (tap gera
   // touchend + click), que abria e fechava no mesmo gesto.
-  var seta = div.querySelector(".seta");
   var ultimoToggle = 0;
   function alternarLegenda(e) {
     if (e) L.DomEvent.stop(e);
     var agora = Date.now();
     if (agora - ultimoToggle < 350) return;
     ultimoToggle = agora;
-    var fechada = div.classList.toggle("fechada");
-    seta.textContent = fechada ? "▶" : "▼";
+    div.classList.toggle("fechada");
   }
   var cabecalho = div.querySelector(".legenda-cabecalho");
   cabecalho.addEventListener("click", alternarLegenda);
   cabecalho.addEventListener("touchend", alternarLegenda);
-  // No mobile, interagir com o mapa recolhe a legenda (mesmo comportamento
-  // do controle de grupos nativo do Leaflet)
-  fecharLegendaSeMobile = function () {
-    if (window.innerWidth < 700 && !div.classList.contains("fechada")) alternarLegenda();
+  // No mobile, tocar em QUALQUER lugar fora da legenda a recolhe (mesmo
+  // comportamento do controle de grupos nativo do Leaflet)
+  fecharLegendaSeMobile = function (e) {
+    if (window.innerWidth >= 700 || div.classList.contains("fechada")) return;
+    if (e && e.target && div.contains(e.target)) return;  // toque dentro dela não fecha
+    alternarLegenda();
   };
+  document.addEventListener("pointerdown", fecharLegendaSeMobile, true);
   window.addEventListener("load", function () {
     if (window.innerWidth < 700 && !div.classList.contains("fechada")) alternarLegenda();
   });
