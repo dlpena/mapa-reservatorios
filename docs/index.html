@@ -42,6 +42,12 @@
   .card.normal    { border-color: var(--normal); }
   .card.fio       { border-color: var(--fio); }
 
+  #resumo-filtros {
+    background: #f2f4f7; border-bottom: 1px solid #dde1e7;
+    padding: 0 14px 7px; font-size: 11.5px; color: #444;
+  }
+  #resumo-filtros b { font-weight: 700; }
+
   #map { flex: 1; min-height: 300px; }
 
   .marcador svg { display: block; }
@@ -59,6 +65,7 @@
   .legenda-cabecalho .seta { font-size: 10px; color: #666; }
   .legenda.fechada .legenda-corpo { display: none; }
   .legenda.fechada { padding: 6px 11px; }
+  .legenda-corpo { max-height: 60vh; overflow-y: auto; }
   .legenda .item { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
   .legenda .quad { width: 11px; height: 11px; border-radius: 2px; flex: 0 0 11px; }
   .legenda .nota { font-size: 10px; color: #666; margin-top: 4px; }
@@ -95,10 +102,11 @@
 <body>
 <header>
   <h1>Situação dos Reservatórios — Nordeste e SIN</h1>
-  <span class="sub">Fonte: ANA (SAR) · Atualizado em 31/07/2026 17:12 · Faixas: Restrição &lt;20% · Atenção 20–50% · Normal &gt;50%</span>
+  <span class="sub">Fonte: ANA (SAR) · Atualizado em 31/07/2026 17:19 · Faixas: Restrição &lt;20% · Atenção 20–50% · Normal &gt;50%</span>
 </header>
 
 <div id="cards"></div>
+<div id="resumo-filtros"></div>
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -211,10 +219,13 @@ window.addEventListener("load", function () {
   L.control.layers(null, camadas, {collapsed: window.innerWidth < 700, position: "topright"}).addTo(mapa);
 });
 
-// Cartões-resumo: contagens + filtro por faixa ao clicar
-var contagens = {"Restrição": 0, "Atenção": 0, "Normal": 0, "Fio d'água": 0, "Sem dado": 0};
-DADOS.forEach(function (d) { contagens[d.faixa] += 1; });
+// Cartões-resumo: contadores dinâmicos (refletem grupos ligados e o toggle de
+// medições antigas) + filtro por faixa ao clicar
+function grupoAtivo(g) { return mapa.hasLayer(camadas[g]); }
+
 var cardsDiv = document.getElementById("cards");
+var resumoDiv = document.getElementById("resumo-filtros");
+var cardRefs = {};
 [
   {faixa: "Restrição", rot: "Restrição (<20%)", cls: "restricao"},
   {faixa: "Atenção", rot: "Atenção (20–50%)", cls: "atencao"},
@@ -223,15 +234,41 @@ var cardsDiv = document.getElementById("cards");
 ].forEach(function (c) {
   var el = document.createElement("div");
   el.className = "card " + c.cls;
-  el.innerHTML = "<div class='num'>" + contagens[c.faixa] + "</div><div class='rot'>" + c.rot +
+  el.innerHTML = "<div class='num'></div><div class='rot'>" + c.rot +
                  "</div><div class='dica'>clique para filtrar</div>";
   el.addEventListener("click", function () {
     faixasAtivas[c.faixa] = !faixasAtivas[c.faixa];
     el.classList.toggle("inativo", !faixasAtivas[c.faixa]);
     aplicarFiltro();
+    atualizarPainel();
   });
   cardsDiv.appendChild(el);
+  cardRefs[c.faixa] = el;
 });
+
+function atualizarPainel() {
+  Object.keys(cardRefs).forEach(function (faixa) {
+    var n = marcadores.filter(function (mk) {
+      return mk.faixa === faixa && (mostrarAntigos || !mk.antigo) && grupoAtivo(mk.grupo);
+    }).length;
+    cardRefs[faixa].querySelector(".num").textContent = n;
+  });
+  var visiveis = marcadores.filter(function (mk) {
+    return faixasAtivas[mk.faixa] && (mostrarAntigos || !mk.antigo) && grupoAtivo(mk.grupo);
+  }).length;
+  var partes = [];
+  if (!mostrarAntigos) partes.push("ocultando medições com mais de 30 dias");
+  var gruposOff = Object.keys(camadas).filter(function (g) { return !grupoAtivo(g); });
+  if (gruposOff.length) partes.push("grupos ocultos: " + gruposOff.join(", "));
+  var faixasOff = ["Restrição", "Atenção", "Normal", "Fio d'água"].filter(function (f) { return !faixasAtivas[f]; });
+  if (faixasOff.length) partes.push("faixas ocultas: " + faixasOff.join(", "));
+  resumoDiv.innerHTML = "Exibindo <b>" + visiveis + "</b> de " + DADOS.length + " reservatórios" +
+    (partes.length ? " · " + partes.join(" · ") : " · sem filtros ativos");
+}
+atualizarPainel();
+
+// Ligar/desligar grupos no controle de camadas também atualiza os contadores
+mapa.on("overlayadd overlayremove", atualizarPainel);
 
 // Legenda (forma = grupo, cor = faixa) + opção de ocultar medições antigas
 var legenda = L.control({position: "bottomleft"});
@@ -258,14 +295,24 @@ legenda.onAdd = function () {
   div.querySelector("#chk-antigos").addEventListener("change", function () {
     mostrarAntigos = this.checked;
     aplicarFiltro();
+    atualizarPainel();
   });
-  // Em telas pequenas a legenda começa recolhida para não cobrir o mapa
+  // Em telas pequenas a legenda começa recolhida para não cobrir o mapa.
+  // O bloqueio de 350ms evita o toque duplo sintetizado no mobile (tap gera
+  // touchend + click), que abria e fechava no mesmo gesto.
   var seta = div.querySelector(".seta");
-  function alternarLegenda() {
+  var ultimoToggle = 0;
+  function alternarLegenda(e) {
+    if (e) L.DomEvent.stop(e);
+    var agora = Date.now();
+    if (agora - ultimoToggle < 350) return;
+    ultimoToggle = agora;
     var fechada = div.classList.toggle("fechada");
     seta.textContent = fechada ? "▶" : "▼";
   }
-  div.querySelector(".legenda-cabecalho").addEventListener("click", alternarLegenda);
+  var cabecalho = div.querySelector(".legenda-cabecalho");
+  cabecalho.addEventListener("click", alternarLegenda);
+  cabecalho.addEventListener("touchend", alternarLegenda);
   window.addEventListener("load", function () {
     if (window.innerWidth < 700 && !div.classList.contains("fechada")) alternarLegenda();
   });
