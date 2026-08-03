@@ -117,7 +117,7 @@ KML_CORES = {
     "Restrição": "ff0000c0",   # #C00000
     "Atenção": "ff0fc8f2",     # #F2C80F
     "Normal": "ff107c10",      # #107C10
-    "Fio d'água": "ff6d6b5f",  # #5F6B6D
+    "Fio d'água": "ffa3a095",  # #95A0A3 (cinza claro p/ não confundir com o verde)
     "Sem dado": "ff9e9e9e",
 }
 KML_ICONES = {

@@ -8,7 +8,7 @@
 <style>
   :root {
     --restricao: #C00000; --atencao: #F2C80F; --normal: #107C10;
-    --fio: #5F6B6D; --semdado: #9E9E9E; --azul: #123F6D;
+    --fio: #95A0A3; --semdado: #9E9E9E; --azul: #123F6D;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; font-family: "Segoe UI", Arial, sans-serif; }
@@ -137,7 +137,7 @@ var CORES = {
   "Restrição": "#C00000",
   "Atenção":   "#F2C80F",
   "Normal":    "#107C10",
-  "Fio d'água":"#5F6B6D",
+  "Fio d'água":"#95A0A3",
   "Sem dado":  "#9E9E9E"
 };
 
@@ -172,7 +172,9 @@ function valorRotulo(d) {
 function popupHtml(d) {
   var vr = valorRotulo(d);
   var cor = CORES[d.faixa] || CORES["Sem dado"];
-  var corValor = d.faixa === "Atenção" ? "#b89200" : cor;  // amarelo puro não lê em fundo branco
+  // amarelo puro e cinza-claro não leem em fundo branco: texto em tom mais escuro
+  var corValor = d.faixa === "Atenção" ? "#b89200" :
+                 d.faixa === "Fio d'água" ? "#5F6B6D" : cor;
   var h = "<div class='popup-titulo'>" + d.nome + "</div>";
   h += "<div class='popup-pct' style='color:" + corValor + "'>" + vr.valor +
        " <span class='popup-rot'>" + vr.rotulo + "</span></div>";
@@ -209,8 +211,8 @@ var baseSatelite = L.layerGroup([
 // Linhas cinza no mapa claro; brancas no satélite. Se o fetch falhar
 // (ex.: index.html aberto direto do disco), o mapa segue sem a camada.
 var ESTILO_UF = {
-  claro:    {color: "#7a8390", weight: 1, fill: false, opacity: 0.9},
-  satelite: {color: "#ffffff", weight: 1, fill: false, opacity: 0.85}
+  claro:    {color: "#7a8390", weight: 0.8, fill: false, opacity: 0.55},
+  satelite: {color: "#ffffff", weight: 0.8, fill: false, opacity: 0.5}
 };
 var camadaUF = L.layerGroup().addTo(mapa);
 var geoUF = null;
@@ -406,7 +408,7 @@ function baixarBlob(blob, nome) {
 
 var KML_CORES = {  // aabbggrr
   "Restrição": "ff0000c0", "Atenção": "ff0fc8f2", "Normal": "ff107c10",
-  "Fio d'água": "ff6d6b5f", "Sem dado": "ff9e9e9e"
+  "Fio d'água": "ffa3a095", "Sem dado": "ff9e9e9e"
 };
 var KML_ICONES = {
   "Nordeste": "http://maps.google.com/mapfiles/kml/shapes/placemark_square.png",
