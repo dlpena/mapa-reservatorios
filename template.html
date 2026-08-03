@@ -142,14 +142,17 @@ var CORES = {
 };
 
 // Formas: quadrado = NE | triângulo = UHE com reservatório | círculo = fio d'água
+// Contorno fino e translúcido: só separa marcadores sobrepostos, sem "engordar"
+// as formas (um traço branco grosso dominava a visão no mapa de satélite).
+var TRACO = "stroke='rgba(255,255,255,.7)' stroke-width='0.8'";
 function svgMarcador(grupo, cor) {
   var s = "";
   if (grupo === "Nordeste") {
-    s = "<rect x='2.5' y='2.5' width='11' height='11' fill='" + cor + "' stroke='white' stroke-width='1.6'/>";
+    s = "<rect x='2.5' y='2.5' width='11' height='11' fill='" + cor + "' " + TRACO + "/>";
   } else if (grupo === "SIN - Reservatório") {
-    s = "<polygon points='8,1.5 14.8,14 1.2,14' fill='" + cor + "' stroke='white' stroke-width='1.6'/>";
+    s = "<polygon points='8,1.5 14.8,14 1.2,14' fill='" + cor + "' " + TRACO + "/>";
   } else {
-    s = "<circle cx='8' cy='8' r='5.5' fill='" + cor + "' stroke='white' stroke-width='1.6'/>";
+    s = "<circle cx='8' cy='8' r='5.5' fill='" + cor + "' " + TRACO + "/>";
   }
   return "<svg width='16' height='16' xmlns='http://www.w3.org/2000/svg'>" + s + "</svg>";
 }
