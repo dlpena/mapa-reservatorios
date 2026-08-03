@@ -251,7 +251,7 @@ DADOS.forEach(function (d) {
 
 // Filtros: por faixa (cartões) e por medição antiga (checkbox da legenda)
 var faixasAtivas = {"Restrição": true, "Atenção": true, "Normal": true, "Fio d'água": true, "Sem dado": true};
-var mostrarAntigos = true;
+var mostrarAntigos = false;  // inicia ocultando medições >30 dias (checkbox desmarcado)
 
 function aplicarFiltro() {
   Object.keys(camadas).forEach(function (g) { camadas[g].clearLayers(); });
@@ -359,7 +359,7 @@ legenda.onAdd = function () {
   h += "<div class='item'>" + svgMarcador("Nordeste", "#888") + "Nordeste — Volume (%)</div>";
   h += "<div class='item'>" + svgMarcador("SIN - Reservatório", "#888") + "SIN — UHE c/ reservatório — Volume Útil (%)</div>";
   h += "<div class='item'>" + svgMarcador("SIN - Fio d'água", "#888") + "SIN — UHE a fio d'água — Nível (m)</div>";
-  h += "<label><input type='checkbox' id='chk-antigos' checked> Exibir medições com mais de 30 dias (esmaecidas)</label>";
+  h += "<label><input type='checkbox' id='chk-antigos'> Exibir medições com mais de 30 dias (esmaecidas)</label>";
   h += "<div class='nota'>Passe o mouse para ver os dados; clique fixa.</div>";
   h += "</div>";
   div.innerHTML = h;
