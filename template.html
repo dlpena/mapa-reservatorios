@@ -189,10 +189,35 @@ var LIMITES = [
 mapa.fitBounds(LIMITES, {padding: [24, 24]});
 window.addEventListener("load", function () { mapa.invalidateSize(); mapa.fitBounds(LIMITES, {padding: [24, 24]}); });
 
-L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+// Mapas base: claro (padrão) e satélite (Esri World Imagery + rótulos claros)
+var baseClaro = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
   attribution: "&copy; OpenStreetMap &copy; CARTO",
   maxZoom: 18
 }).addTo(mapa);
+var baseSatelite = L.layerGroup([
+  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+    attribution: "Imagens &copy; Esri, Maxar, Earthstar Geographics",
+    maxZoom: 18
+  }),
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", {maxZoom: 18})
+]);
+
+// Divisão estadual (IBGE, malha simplificada em docs/brasil_uf.json).
+// Linhas cinza no mapa claro; brancas no satélite. Se o fetch falhar
+// (ex.: index.html aberto direto do disco), o mapa segue sem a camada.
+var ESTILO_UF = {
+  claro:    {color: "#7a8390", weight: 1, fill: false, opacity: 0.9},
+  satelite: {color: "#ffffff", weight: 1, fill: false, opacity: 0.85}
+};
+var camadaUF = L.layerGroup().addTo(mapa);
+var geoUF = null;
+fetch("brasil_uf.json").then(function (r) { return r.json(); }).then(function (gj) {
+  geoUF = L.geoJSON(gj, {style: ESTILO_UF.claro, interactive: false});
+  camadaUF.addLayer(geoUF);
+}).catch(function () {});
+mapa.on("baselayerchange", function (e) {
+  if (geoUF) geoUF.setStyle(e.name === "Satélite" ? ESTILO_UF.satelite : ESTILO_UF.claro);
+});
 
 var camadas = {
   "Nordeste": L.layerGroup(),
@@ -237,13 +262,17 @@ Object.keys(camadas).forEach(function (k) { camadas[k].addTo(mapa); });
 // o recolhimento nativo ao clicar no mapa.
 window.addEventListener("load", function () {
   var movel = window.innerWidth < 700;
-  var ctrlGrupos = L.control.layers(null, camadas, {collapsed: movel, position: "topright"}).addTo(mapa);
+  var bases = {"Mapa": baseClaro, "Satélite": baseSatelite};
+  var sobreposicoes = {};
+  Object.keys(camadas).forEach(function (k) { sobreposicoes[k] = camadas[k]; });
+  sobreposicoes["Divisão estadual"] = camadaUF;
+  var ctrlGrupos = L.control.layers(bases, sobreposicoes, {collapsed: movel, position: "topright"}).addTo(mapa);
   if (movel) {
     mapa.off("click", ctrlGrupos.collapse, ctrlGrupos);
     var form = ctrlGrupos.getContainer().querySelector(".leaflet-control-layers-list");
     var cab = document.createElement("div");
     cab.className = "cabecalho-grupos";
-    cab.innerHTML = "<span>Grupos</span><span class='fechar-x' title='Recolher grupos'>✕</span>";
+    cab.innerHTML = "<span>Camadas</span><span class='fechar-x' title='Recolher camadas'>✕</span>";
     form.insertBefore(cab, form.firstChild);
     cab.querySelector(".fechar-x").addEventListener("click", function (e) {
       L.DomEvent.stop(e);
