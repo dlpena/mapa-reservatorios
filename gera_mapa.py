@@ -312,7 +312,7 @@ def gerar_kmz(registros):
             nome_icone = f"icone_{sid}.png"
             icones[nome_icone] = gerar_icone_png(GRUPO_FORMA[grupo], FAIXA_HEX.get(faixa, FAIXA_HEX["Sem dado"]))
             estilos.append(
-                f"<Style id='{sid}'><IconStyle><scale>0.65</scale><Icon><href>{nome_icone}</href></Icon>"
+                f"<Style id='{sid}'><IconStyle><scale>0.85</scale><Icon><href>{nome_icone}</href></Icon>"
                 f"<hotSpot x='0.5' y='0.5' xunits='fraction' yunits='fraction'/></IconStyle>"
                 f"<LabelStyle><scale>0</scale></LabelStyle></Style>"
             )
@@ -346,16 +346,15 @@ def gerar_kmz(registros):
     # visível (diferente de uma pasta com <description>, que só aparece em
     # balão ao clicar). overlayXY 0,0 = canto inferior-esquerdo da IMAGEM;
     # screenXY 0.01,0.02 = quase colado no canto inferior-esquerdo da TELA.
-    # O PNG é gerado a 2x (500x380 px reais, p/ ficar nítido) — o design é
-    # 250x190. size=metade do PNG REAL (250x190, não 125x95: raster já é 2x)
-    # dá o tamanho "de design" na tela, com o dobro dos pixels por trás
-    # (efeito retina), sem ficar nem grande nem minúsculo.
+    # O PNG é gerado a 2x (500x380 px reais, p/ ficar nítido). Tamanho exibido
+    # em tela: 300x230 — ainda bem menor que o original "muito grande"
+    # (500x380) e maior que a metade exata (250x190, ficou pequeno demais).
     overlay_legenda = (
         "<ScreenOverlay><name>Legenda</name>"
         "<Icon><href>legenda.png</href></Icon>"
         "<overlayXY x='0' y='0' xunits='fraction' yunits='fraction'/>"
         "<screenXY x='0.01' y='0.02' xunits='fraction' yunits='fraction'/>"
-        "<size x='250' y='190' xunits='pixels' yunits='pixels'/>"
+        "<size x='300' y='230' xunits='pixels' yunits='pixels'/>"
         "</ScreenOverlay>"
     )
     kml = (
