@@ -442,6 +442,73 @@ function xmlEsc(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// Legenda como imagem (canvas -> PNG), p/ o <ScreenOverlay> do KML: uma
+// pasta com <description> só aparece em balão ao clicar; o ScreenOverlay
+// fica fixo num canto da tela, sempre visível, sem precisar clicar em nada.
+// Mesmo layout/cores do gerador Python (gera_mapa.py:gerar_legenda_png).
+function desenharFormaLegenda(ctx, tipo, cx, cy, r) {
+  ctx.fillStyle = "#787878";
+  ctx.strokeStyle = "rgba(255,255,255,0.9)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  if (tipo === "quadrado") {
+    ctx.rect(cx - r, cy - r, r * 2, r * 2);
+  } else if (tipo === "triangulo") {
+    ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy + r); ctx.lineTo(cx - r, cy + r); ctx.closePath();
+  } else {
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  }
+  ctx.fill(); ctx.stroke();
+}
+
+function gerarLegendaPngBlob() {
+  var e = 2, largura = 250, altura = 190, raio = 8;
+  var canvas = document.createElement("canvas");
+  canvas.width = largura * e; canvas.height = altura * e;
+  var ctx = canvas.getContext("2d");
+  ctx.scale(e, e);
+
+  ctx.fillStyle = "rgba(255,255,255,0.95)";
+  ctx.strokeStyle = "#999";
+  ctx.beginPath();
+  ctx.moveTo(1 + raio, 1);
+  ctx.arcTo(largura - 1, 1, largura - 1, altura - 1, raio);
+  ctx.arcTo(largura - 1, altura - 1, 1, altura - 1, raio);
+  ctx.arcTo(1, altura - 1, 1, 1, raio);
+  ctx.arcTo(1, 1, largura - 1, 1, raio);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  var fonteFamilia = '"Segoe UI", Arial, sans-serif';
+  ctx.fillStyle = "#111";
+  ctx.font = "bold 13px " + fonteFamilia;
+  var y = 18;
+  ctx.fillText("Cor — Classificação", 12, y);
+  ctx.font = "12px " + fonteFamilia;
+  ["Restrição", "Atenção", "Normal", "Fio d'água"].forEach(function (f) {
+    y += 20;
+    ctx.fillStyle = CORES[f];
+    ctx.fillRect(12, y - 11, 12, 12);
+    ctx.strokeStyle = "#888"; ctx.strokeRect(12, y - 11, 12, 12);
+    ctx.fillStyle = "#111";
+    ctx.fillText(FAIXAS_ROTULO[f], 30, y);
+  });
+  y += 26;
+  ctx.font = "bold 13px " + fonteFamilia;
+  ctx.fillText("Forma — Grupo", 12, y);
+  ctx.font = "12px " + fonteFamilia;
+  [["Nordeste — Volume (%)", "quadrado"],
+   ["SIN – UHE c/ reserv. — Volume Útil (%)", "triangulo"],
+   ["SIN – UHE a fio d'água — Nível (m)", "circulo"]].forEach(function (par) {
+    y += 20;
+    desenharFormaLegenda(ctx, par[1], 18, y - 4, 6);
+    ctx.fillStyle = "#111";
+    ctx.fillText(par[0], 30, y);
+  });
+
+  return new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
+}
+
 function legendaHtml() {
   var swatches = ["Restrição", "Atenção", "Normal", "Fio d'água"].map(function (f) {
     return "<div style='margin:2px 0'><span style='display:inline-block;width:12px;height:12px;" +
@@ -486,12 +553,18 @@ function kmlDosVisiveis() {
     return "<Folder><name>" + xmlEsc(FAIXAS_ROTULO[faixa] || faixa) + "</name>" + subpastas + "</Folder>";
   }).join("");
   var legenda = legendaHtml();
-  var pastaLegenda = "<Folder><name>Legenda</name><description><![CDATA[" + legenda + "]]></description></Folder>";
+  // ScreenOverlay: imagem fixa no canto inferior esquerdo da tela, sempre
+  // visível — ver gerarLegendaPngBlob() (o PNG é adicionado ao zip em
+  // exportarKMZ, aqui só a referência ao arquivo).
+  var overlayLegenda = "<ScreenOverlay><name>Legenda</name><Icon><href>legenda.png</href></Icon>" +
+    "<overlayXY x='0' y='0' xunits='fraction' yunits='fraction'/>" +
+    "<screenXY x='0.01' y='0.02' xunits='fraction' yunits='fraction'/>" +
+    "<size x='0' y='0' xunits='fraction' yunits='fraction'/></ScreenOverlay>";
   return "<?xml version='1.0' encoding='UTF-8'?>" +
     "<kml xmlns='http://www.opengis.net/kml/2.2'><Document>" +
     "<name>Situação dos Reservatórios — Nordeste e SIN</name>" +
     "<description><![CDATA[" + legenda + "]]></description>" +
-    Object.keys(estilos).map(function (k) { return estilos[k]; }).join("") + pastaLegenda + pastasFaixa +
+    Object.keys(estilos).map(function (k) { return estilos[k]; }).join("") + overlayLegenda + pastasFaixa +
     "</Document></kml>";
 }
 
@@ -499,7 +572,10 @@ function exportarKMZ() {
   if (typeof JSZip === "undefined") { window.location.href = "reservatorios.kmz"; return; }
   var zip = new JSZip();
   zip.file("doc.kml", kmlDosVisiveis());
-  zip.generateAsync({type: "blob", compression: "DEFLATE"}).then(function (blob) {
+  gerarLegendaPngBlob().then(function (blob) {
+    zip.file("legenda.png", blob);
+    return zip.generateAsync({type: "blob", compression: "DEFLATE"});
+  }).then(function (blob) {
     baixarBlob(blob, "reservatorios.kmz");
   });
 }

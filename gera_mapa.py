@@ -29,6 +29,7 @@ import tempfile
 import zipfile
 from datetime import datetime
 from html import escape
+from io import BytesIO
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent
@@ -194,6 +195,71 @@ def _legenda_html():
     )
 
 
+def _hex_rgba(hexcor, alpha=255):
+    hexcor = hexcor.lstrip("#")
+    return tuple(int(hexcor[i:i + 2], 16) for i in (0, 2, 4)) + (alpha,)
+
+
+def gerar_legenda_png():
+    """Legenda como imagem (PNG) p/ <ScreenOverlay> do KML — ao contrário da
+    descrição de uma pasta (só aparece em balão, ao clicar), o ScreenOverlay
+    fica fixo num canto da tela, sempre visível, sem precisar clicar em nada.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    # Fonte padrão do Pillow (bitmap) não desenha acentos — "ç"/"ã"/"í" viram
+    # caixas. Usa Segoe UI do Windows (mesma família do resto do mapa); se um
+    # dia isto rodar fora deste notebook, cai pro Arial e por fim pro bitmap.
+    def _fonte(candidatos, tamanho):
+        for caminho in candidatos:
+            if Path(caminho).exists():
+                return ImageFont.truetype(caminho, tamanho)
+        return ImageFont.load_default(size=tamanho)
+
+    e = 2  # escala 2x p/ ficar nítido em telas de alta densidade
+    largura, altura = 250 * e, 190 * e
+    img = Image.new("RGBA", (largura, altura), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle(
+        [1, 1, largura - 2, altura - 2], radius=8 * e,
+        fill=(255, 255, 255, 242), outline=(153, 153, 153, 255), width=e,
+    )
+    f_titulo = _fonte([r"C:\Windows\Fonts\seguisb.ttf", r"C:\Windows\Fonts\arialbd.ttf"], 13 * e)
+    f_texto = _fonte([r"C:\Windows\Fonts\segoeui.ttf", r"C:\Windows\Fonts\arial.ttf"], 12 * e)
+    preto = (17, 17, 17, 255)
+    cinza = (120, 120, 120, 255)
+
+    def forma(cx, cy, tipo):
+        r = 6 * e
+        if tipo == "quadrado":
+            d.rectangle([cx - r, cy - r, cx + r, cy + r], fill=cinza, outline=(255, 255, 255, 255), width=e // 2 or 1)
+        elif tipo == "triangulo":
+            d.polygon([(cx, cy - r), (cx + r, cy + r), (cx - r, cy + r)], fill=cinza, outline=(255, 255, 255, 255))
+        else:
+            d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=cinza, outline=(255, 255, 255, 255), width=e // 2 or 1)
+
+    y = 16 * e
+    d.text((12 * e, y), "Cor — Classificação", font=f_titulo, fill=preto)
+    for faixa in ("Restrição", "Atenção", "Normal", "Fio d'água"):
+        y += 18 * e
+        d.rectangle([12 * e, y - 5 * e, 24 * e, y + 7 * e], fill=_hex_rgba(FAIXA_HEX[faixa]), outline=(136, 136, 136, 255))
+        d.text((30 * e, y - 5 * e), FAIXAS_ROTULO[faixa], font=f_texto, fill=preto)
+    y += 24 * e
+    d.text((12 * e, y), "Forma — Grupo", font=f_titulo, fill=preto)
+    for rotulo, tipo in (
+        ("Nordeste — Volume (%)", "quadrado"),
+        ("SIN – UHE c/ reserv. — Volume Útil (%)", "triangulo"),
+        ("SIN – UHE a fio d'água — Nível (m)", "circulo"),
+    ):
+        y += 18 * e
+        forma(18 * e, y + 1 * e, tipo)
+        d.text((30 * e, y - 5 * e), rotulo, font=f_texto, fill=preto)
+
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def _valor_unidade(reg):
     """Valor exibido e sua unidade, conforme o grupo (mesma lógica do popup)."""
     if reg["grupo"] == "SIN - Fio d'água":
@@ -249,18 +315,30 @@ def gerar_kmz(registros):
         pastas_faixa.append(f"<Folder><name>{escape(FAIXAS_ROTULO.get(faixa, faixa))}</name>{subpastas}</Folder>")
 
     legenda = _legenda_html()
-    pasta_legenda = f"<Folder><name>Legenda</name><description><![CDATA[{legenda}]]></description></Folder>"
+    # ScreenOverlay: imagem fixa no canto inferior esquerdo da tela, sempre
+    # visível (diferente de uma pasta com <description>, que só aparece em
+    # balão ao clicar). overlayXY 0,0 = canto inferior-esquerdo da IMAGEM;
+    # screenXY 0.01,0.02 = quase colado no canto inferior-esquerdo da TELA.
+    overlay_legenda = (
+        "<ScreenOverlay><name>Legenda</name>"
+        "<Icon><href>legenda.png</href></Icon>"
+        "<overlayXY x='0' y='0' xunits='fraction' yunits='fraction'/>"
+        "<screenXY x='0.01' y='0.02' xunits='fraction' yunits='fraction'/>"
+        "<size x='0' y='0' xunits='fraction' yunits='fraction'/>"
+        "</ScreenOverlay>"
+    )
     kml = (
         "<?xml version='1.0' encoding='UTF-8'?>"
         "<kml xmlns='http://www.opengis.net/kml/2.2'><Document>"
         f"<name>Situação dos Reservatórios — Nordeste e SIN</name>"
         f"<description><![CDATA[{legenda}]]></description>"
-        f"{''.join(estilos)}{pasta_legenda}{''.join(pastas_faixa)}"
+        f"{''.join(estilos)}{overlay_legenda}{''.join(pastas_faixa)}"
         "</Document></kml>"
     )
     destino = RAIZ / "docs" / "reservatorios.kmz"
     with zipfile.ZipFile(destino, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("doc.kml", kml)
+        z.writestr("legenda.png", gerar_legenda_png())
     return destino
 
 
