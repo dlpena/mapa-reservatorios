@@ -551,7 +551,7 @@ function kmlDosVisiveis() {
     if (!estilos[sid]) {
       var nomeIcone = "icone_" + sid + ".png";
       iconesNecessarios[nomeIcone] = {tipo: GRUPO_FORMA[d.grupo], cor: CORES[d.faixa] || CORES["Sem dado"]};
-      estilos[sid] = "<Style id='" + sid + "'><IconStyle><scale>1.0</scale><Icon><href>" + nomeIcone +
+      estilos[sid] = "<Style id='" + sid + "'><IconStyle><scale>0.65</scale><Icon><href>" + nomeIcone +
         "</href></Icon><hotSpot x='0.5' y='0.5' xunits='fraction' yunits='fraction'/></IconStyle>" +
         "<LabelStyle><scale>0</scale></LabelStyle></Style>";
     }
@@ -576,12 +576,13 @@ function kmlDosVisiveis() {
   // ScreenOverlay: imagem fixa no canto inferior esquerdo da tela, sempre
   // visível — ver gerarLegendaPngBlob() (o PNG é adicionado ao zip em
   // exportarKMZ, aqui só a referência ao arquivo).
-  // size em pixels = metade do PNG (gerado a 2x/250x190) — exibido a 125x95,
-  // mas com o dobro dos pixels de origem por trás, fica nítido ("retina").
+  // O PNG é gerado a 2x (500x380 px reais) — o design é 250x190. size=metade
+  // do PNG REAL (250x190, não 125x95: raster já é 2x) dá o tamanho "de
+  // design" na tela, com o dobro dos pixels por trás (efeito retina).
   var overlayLegenda = "<ScreenOverlay><name>Legenda</name><Icon><href>legenda.png</href></Icon>" +
     "<overlayXY x='0' y='0' xunits='fraction' yunits='fraction'/>" +
     "<screenXY x='0.01' y='0.02' xunits='fraction' yunits='fraction'/>" +
-    "<size x='125' y='95' xunits='pixels' yunits='pixels'/></ScreenOverlay>";
+    "<size x='250' y='190' xunits='pixels' yunits='pixels'/></ScreenOverlay>";
   var kml = "<?xml version='1.0' encoding='UTF-8'?>" +
     "<kml xmlns='http://www.opengis.net/kml/2.2'><Document>" +
     "<name>Situação dos Reservatórios — Nordeste e SIN</name>" +
