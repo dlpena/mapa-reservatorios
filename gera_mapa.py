@@ -144,16 +144,8 @@ def gerar_saida(registros):
     return dados_json, index_html
 
 
-# Cores das faixas em formato KML (aabbggrr) e ícones por grupo
-KML_CORES = {
-    "Restrição": "ff0000c0",   # #C00000
-    "Atenção": "ff0fc8f2",     # #F2C80F
-    "Normal": "ff107c10",      # #107C10
-    "Fio d'água": "ffa3a095",  # #95A0A3 (cinza claro p/ não confundir com o verde)
-    "Sem dado": "ff9e9e9e",
-}
-# Mesmas cores em #RRGGBB (p/ swatches HTML da legenda — KML_CORES está em
-# aabbggrr, ordem que o CSS não entende).
+# Cores das faixas em #RRGGBB — mesmas do mapa web (template.html: CORES) e
+# da legenda em HTML/PNG.
 FAIXA_HEX = {
     "Restrição": "#C00000",
     "Atenção": "#F2C80F",
@@ -161,10 +153,11 @@ FAIXA_HEX = {
     "Fio d'água": "#95A0A3",
     "Sem dado": "#9E9E9E",
 }
-KML_ICONES = {
-    "Nordeste": "http://maps.google.com/mapfiles/kml/shapes/placemark_square.png",
-    "SIN - Reservatório": "http://maps.google.com/mapfiles/kml/shapes/triangle.png",
-    "SIN - Fio d'água": "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png",
+# Forma do marcador por grupo — igual ao mapa web (svgMarcador) e à legenda.
+GRUPO_FORMA = {
+    "Nordeste": "quadrado",
+    "SIN - Reservatório": "triangulo",
+    "SIN - Fio d'água": "circulo",
 }
 # Nível 1 da pasta = Classificação (faixa); nível 2 = Grupo. "Fio d'água" só
 # tem o grupo "SIN - Fio d'água" dentro — as demais faixas têm Nordeste e
@@ -198,6 +191,37 @@ def _legenda_html():
 def _hex_rgba(hexcor, alpha=255):
     hexcor = hexcor.lstrip("#")
     return tuple(int(hexcor[i:i + 2], 16) for i in (0, 2, 4)) + (alpha,)
+
+
+def gerar_icone_png(tipo, cor_hex, tamanho=32):
+    """Ícone do marcador (quadrado/triângulo/círculo, cor sólida) — mesma
+    forma/estilo do mapa web e da legenda, em vez do ícone genérico do Google
+    (que fica com o multiply de cor meio embaçado e não bate com a legenda).
+    Desenha em 4x e reduz com LANCZOS: ImageDraw não faz antialiasing nativo,
+    então polígonos sem esse truque saem serrilhados.
+    """
+    from PIL import Image, ImageDraw
+
+    grande = tamanho * 4
+    img = Image.new("RGBA", (grande, grande), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    cor = _hex_rgba(cor_hex)
+    branco = (255, 255, 255, 230)
+    margem = grande * 0.12
+    contorno = max(1, round(grande * 0.035))
+    if tipo == "quadrado":
+        d.rectangle([margem, margem, grande - margem, grande - margem], fill=cor, outline=branco, width=contorno)
+    elif tipo == "triangulo":
+        d.polygon(
+            [(grande / 2, margem), (grande - margem, grande - margem), (margem, grande - margem)],
+            fill=cor, outline=branco, width=contorno,
+        )
+    else:
+        d.ellipse([margem, margem, grande - margem, grande - margem], fill=cor, outline=branco, width=contorno)
+    img = img.resize((tamanho, tamanho), Image.LANCZOS)
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 def gerar_legenda_png():
@@ -276,6 +300,7 @@ def _fmt_br(v, casas):
 
 def gerar_kmz(registros):
     estilos, usados = [], set()
+    icones = {}  # nome_arquivo -> bytes PNG
     # corpo[faixa][grupo] = lista de placemarks — pastas aninhadas em 2 níveis
     corpo = {}
     for r in registros:
@@ -284,9 +309,11 @@ def gerar_kmz(registros):
         sid = f"s_{abs(hash(chave))}"
         if chave not in usados:
             usados.add(chave)
+            nome_icone = f"icone_{sid}.png"
+            icones[nome_icone] = gerar_icone_png(GRUPO_FORMA[grupo], FAIXA_HEX.get(faixa, FAIXA_HEX["Sem dado"]))
             estilos.append(
-                f"<Style id='{sid}'><IconStyle><color>{KML_CORES.get(faixa, KML_CORES['Sem dado'])}</color>"
-                f"<scale>0.9</scale><Icon><href>{KML_ICONES[grupo]}</href></Icon></IconStyle>"
+                f"<Style id='{sid}'><IconStyle><scale>1.0</scale><Icon><href>{nome_icone}</href></Icon>"
+                f"<hotSpot x='0.5' y='0.5' xunits='fraction' yunits='fraction'/></IconStyle>"
                 f"<LabelStyle><scale>0</scale></LabelStyle></Style>"
             )
         valor, _, rotulo = _valor_unidade(r)
@@ -319,12 +346,15 @@ def gerar_kmz(registros):
     # visível (diferente de uma pasta com <description>, que só aparece em
     # balão ao clicar). overlayXY 0,0 = canto inferior-esquerdo da IMAGEM;
     # screenXY 0.01,0.02 = quase colado no canto inferior-esquerdo da TELA.
+    # size em pixels = metade do PNG (gerado a 2x/250x190) — exibido a 125x95,
+    # mas com o dobro dos pixels de origem por trás, fica nítido (efeito
+    # "retina"), não borrado como encolher a própria imagem deixaria.
     overlay_legenda = (
         "<ScreenOverlay><name>Legenda</name>"
         "<Icon><href>legenda.png</href></Icon>"
         "<overlayXY x='0' y='0' xunits='fraction' yunits='fraction'/>"
         "<screenXY x='0.01' y='0.02' xunits='fraction' yunits='fraction'/>"
-        "<size x='0' y='0' xunits='fraction' yunits='fraction'/>"
+        "<size x='125' y='95' xunits='pixels' yunits='pixels'/>"
         "</ScreenOverlay>"
     )
     kml = (
@@ -339,6 +369,8 @@ def gerar_kmz(registros):
     with zipfile.ZipFile(destino, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("doc.kml", kml)
         z.writestr("legenda.png", gerar_legenda_png())
+        for nome, dados in icones.items():
+            z.writestr(nome, dados)
     return destino
 
 

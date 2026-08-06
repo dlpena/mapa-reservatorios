@@ -418,14 +418,11 @@ function baixarBlob(blob, nome) {
   setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
 
-var KML_CORES = {  // aabbggrr
-  "Restrição": "ff0000c0", "Atenção": "ff0fc8f2", "Normal": "ff107c10",
-  "Fio d'água": "ffa3a095", "Sem dado": "ff9e9e9e"
-};
-var KML_ICONES = {
-  "Nordeste": "http://maps.google.com/mapfiles/kml/shapes/placemark_square.png",
-  "SIN - Reservatório": "http://maps.google.com/mapfiles/kml/shapes/triangle.png",
-  "SIN - Fio d'água": "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png"
+// Forma do marcador por grupo — igual ao mapa web (svgMarcador) e à legenda.
+var GRUPO_FORMA = {
+  "Nordeste": "quadrado",
+  "SIN - Reservatório": "triangulo",
+  "SIN - Fio d'água": "circulo"
 };
 // Nível 1 da pasta = Classificação (faixa); nível 2 = Grupo. "Fio d'água" só
 // tem o grupo "SIN - Fio d'água" dentro; as demais faixas têm Nordeste e
@@ -459,6 +456,27 @@ function desenharFormaLegenda(ctx, tipo, cx, cy, r) {
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
   }
   ctx.fill(); ctx.stroke();
+}
+
+function gerarIconePngBlob(tipo, corHex, tamanho) {
+  tamanho = tamanho || 32;
+  var canvas = document.createElement("canvas");
+  canvas.width = tamanho; canvas.height = tamanho;
+  var ctx = canvas.getContext("2d");
+  var margem = tamanho * 0.12;
+  ctx.fillStyle = corHex;
+  ctx.strokeStyle = "rgba(255,255,255,0.9)";
+  ctx.lineWidth = tamanho * 0.07;
+  ctx.beginPath();
+  if (tipo === "quadrado") {
+    ctx.rect(margem, margem, tamanho - margem * 2, tamanho - margem * 2);
+  } else if (tipo === "triangulo") {
+    ctx.moveTo(tamanho / 2, margem); ctx.lineTo(tamanho - margem, tamanho - margem); ctx.lineTo(margem, tamanho - margem); ctx.closePath();
+  } else {
+    ctx.arc(tamanho / 2, tamanho / 2, tamanho / 2 - margem, 0, Math.PI * 2);
+  }
+  ctx.fill(); ctx.stroke();
+  return new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
 }
 
 function gerarLegendaPngBlob() {
@@ -525,15 +543,17 @@ function legendaHtml() {
 function kmlDosVisiveis() {
   var regs = registrosVisiveis();
   var estilos = {};
+  var iconesNecessarios = {};  // nome_arquivo -> {tipo, cor}
   // corpo[faixa][grupo] = [placemarks] — pastas aninhadas em 2 níveis
   var corpo = {};
   regs.forEach(function (d) {
-    var sid = "s" + Object.keys(KML_ICONES).indexOf(d.grupo) + "_" +
-              Object.keys(KML_CORES).indexOf(d.faixa);
+    var sid = "s" + GRUPOS_ORDEM.indexOf(d.grupo) + "_" + FAIXAS_ORDEM.indexOf(d.faixa);
     if (!estilos[sid]) {
-      estilos[sid] = "<Style id='" + sid + "'><IconStyle><color>" +
-        (KML_CORES[d.faixa] || KML_CORES["Sem dado"]) + "</color><scale>0.9</scale><Icon><href>" +
-        KML_ICONES[d.grupo] + "</href></Icon></IconStyle><LabelStyle><scale>0</scale></LabelStyle></Style>";
+      var nomeIcone = "icone_" + sid + ".png";
+      iconesNecessarios[nomeIcone] = {tipo: GRUPO_FORMA[d.grupo], cor: CORES[d.faixa] || CORES["Sem dado"]};
+      estilos[sid] = "<Style id='" + sid + "'><IconStyle><scale>1.0</scale><Icon><href>" + nomeIcone +
+        "</href></Icon><hotSpot x='0.5' y='0.5' xunits='fraction' yunits='fraction'/></IconStyle>" +
+        "<LabelStyle><scale>0</scale></LabelStyle></Style>";
     }
     var vr = valorRotulo(d);
     var desc = "<b>" + vr.rotulo + ":</b> " + vr.valor + "<br/><b>Estado:</b> " + xmlEsc(d.uf || "–") +
@@ -556,24 +576,34 @@ function kmlDosVisiveis() {
   // ScreenOverlay: imagem fixa no canto inferior esquerdo da tela, sempre
   // visível — ver gerarLegendaPngBlob() (o PNG é adicionado ao zip em
   // exportarKMZ, aqui só a referência ao arquivo).
+  // size em pixels = metade do PNG (gerado a 2x/250x190) — exibido a 125x95,
+  // mas com o dobro dos pixels de origem por trás, fica nítido ("retina").
   var overlayLegenda = "<ScreenOverlay><name>Legenda</name><Icon><href>legenda.png</href></Icon>" +
     "<overlayXY x='0' y='0' xunits='fraction' yunits='fraction'/>" +
     "<screenXY x='0.01' y='0.02' xunits='fraction' yunits='fraction'/>" +
-    "<size x='0' y='0' xunits='fraction' yunits='fraction'/></ScreenOverlay>";
-  return "<?xml version='1.0' encoding='UTF-8'?>" +
+    "<size x='125' y='95' xunits='pixels' yunits='pixels'/></ScreenOverlay>";
+  var kml = "<?xml version='1.0' encoding='UTF-8'?>" +
     "<kml xmlns='http://www.opengis.net/kml/2.2'><Document>" +
     "<name>Situação dos Reservatórios — Nordeste e SIN</name>" +
     "<description><![CDATA[" + legenda + "]]></description>" +
     Object.keys(estilos).map(function (k) { return estilos[k]; }).join("") + overlayLegenda + pastasFaixa +
     "</Document></kml>";
+  return {kml: kml, icones: iconesNecessarios};
 }
 
 function exportarKMZ() {
   if (typeof JSZip === "undefined") { window.location.href = "reservatorios.kmz"; return; }
+  var resultado = kmlDosVisiveis();
   var zip = new JSZip();
-  zip.file("doc.kml", kmlDosVisiveis());
-  gerarLegendaPngBlob().then(function (blob) {
-    zip.file("legenda.png", blob);
+  zip.file("doc.kml", resultado.kml);
+  var nomesIcones = Object.keys(resultado.icones);
+  Promise.all(nomesIcones.map(function (nome) {
+    var info = resultado.icones[nome];
+    return gerarIconePngBlob(info.tipo, info.cor).then(function (blob) { zip.file(nome, blob); });
+  })).then(function () {
+    return gerarLegendaPngBlob();
+  }).then(function (blobLegenda) {
+    zip.file("legenda.png", blobLegenda);
     return zip.generateAsync({type: "blob", compression: "DEFLATE"});
   }).then(function (blob) {
     baixarBlob(blob, "reservatorios.kmz");
