@@ -427,14 +427,39 @@ var KML_ICONES = {
   "SIN - Reservatório": "http://maps.google.com/mapfiles/kml/shapes/triangle.png",
   "SIN - Fio d'água": "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png"
 };
+// Nível 1 da pasta = Classificação (faixa); nível 2 = Grupo. "Fio d'água" só
+// tem o grupo "SIN - Fio d'água" dentro; as demais faixas têm Nordeste e
+// SIN - Reservatório.
+var FAIXAS_ORDEM = ["Fio d'água", "Restrição", "Atenção", "Normal", "Sem dado"];
+var FAIXAS_ROTULO = {
+  "Restrição": "Restrição (<20%)", "Atenção": "Atenção (20–50%)",
+  "Normal": "Normal (>50%)", "Fio d'água": "Fio d'água (sem classificação)",
+  "Sem dado": "Sem dado"
+};
+var GRUPOS_ORDEM = ["SIN - Fio d'água", "Nordeste", "SIN - Reservatório"];
 
 function xmlEsc(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function legendaHtml() {
+  var swatches = ["Restrição", "Atenção", "Normal", "Fio d'água"].map(function (f) {
+    return "<div style='margin:2px 0'><span style='display:inline-block;width:12px;height:12px;" +
+      "background:" + CORES[f] + ";border:1px solid #888;margin-right:6px;'></span>" +
+      xmlEsc(FAIXAS_ROTULO[f]) + "</div>";
+  }).join("");
+  return "<b>Cor — Classificação</b><br/>" + swatches +
+    "<br/><b>Forma — Grupo</b><br/>" +
+    "Quadrado: Nordeste — Volume (%)<br/>" +
+    "Triângulo: SIN – UHE c/ reservatório — Volume Útil (%)<br/>" +
+    "Círculo: SIN – UHE a fio d'água — Nível (m)";
+}
+
 function kmlDosVisiveis() {
   var regs = registrosVisiveis();
-  var estilos = {}, pastas = {};
+  var estilos = {};
+  // corpo[faixa][grupo] = [placemarks] — pastas aninhadas em 2 níveis
+  var corpo = {};
   regs.forEach(function (d) {
     var sid = "s" + Object.keys(KML_ICONES).indexOf(d.grupo) + "_" +
               Object.keys(KML_CORES).indexOf(d.faixa);
@@ -446,18 +471,27 @@ function kmlDosVisiveis() {
     var vr = valorRotulo(d);
     var desc = "<b>" + vr.rotulo + ":</b> " + vr.valor + "<br/><b>Estado:</b> " + xmlEsc(d.uf || "–") +
                "<br/><b>Data do Dado:</b> " + xmlEsc(d.data_med || "–");
-    if (!pastas[d.grupo]) pastas[d.grupo] = [];
-    pastas[d.grupo].push("<Placemark><name>" + xmlEsc(d.nome) + "</name><styleUrl>#" + sid +
+    var placemark = "<Placemark><name>" + xmlEsc(d.nome) + "</name><styleUrl>#" + sid +
       "</styleUrl><description><![CDATA[" + desc + "]]></description><Point><coordinates>" +
-      d.lon + "," + d.lat + ",0</coordinates></Point></Placemark>");
+      d.lon + "," + d.lat + ",0</coordinates></Point></Placemark>";
+    if (!corpo[d.faixa]) corpo[d.faixa] = {};
+    if (!corpo[d.faixa][d.grupo]) corpo[d.faixa][d.grupo] = [];
+    corpo[d.faixa][d.grupo].push(placemark);
   });
-  var corpo = Object.keys(pastas).map(function (g) {
-    return "<Folder><name>" + xmlEsc(g) + "</name>" + pastas[g].join("") + "</Folder>";
+  var pastasFaixa = FAIXAS_ORDEM.filter(function (f) { return corpo[f]; }).map(function (faixa) {
+    var grupos = corpo[faixa];
+    var subpastas = GRUPOS_ORDEM.filter(function (g) { return grupos[g]; }).map(function (g) {
+      return "<Folder><name>" + xmlEsc(g) + "</name>" + grupos[g].join("") + "</Folder>";
+    }).join("");
+    return "<Folder><name>" + xmlEsc(FAIXAS_ROTULO[faixa] || faixa) + "</name>" + subpastas + "</Folder>";
   }).join("");
+  var legenda = legendaHtml();
+  var pastaLegenda = "<Folder><name>Legenda</name><description><![CDATA[" + legenda + "]]></description></Folder>";
   return "<?xml version='1.0' encoding='UTF-8'?>" +
     "<kml xmlns='http://www.opengis.net/kml/2.2'><Document>" +
     "<name>Situação dos Reservatórios — Nordeste e SIN</name>" +
-    Object.keys(estilos).map(function (k) { return estilos[k]; }).join("") + corpo +
+    "<description><![CDATA[" + legenda + "]]></description>" +
+    Object.keys(estilos).map(function (k) { return estilos[k]; }).join("") + pastaLegenda + pastasFaixa +
     "</Document></kml>";
 }
 

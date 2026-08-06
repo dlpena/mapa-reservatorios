@@ -151,11 +151,47 @@ KML_CORES = {
     "Fio d'água": "ffa3a095",  # #95A0A3 (cinza claro p/ não confundir com o verde)
     "Sem dado": "ff9e9e9e",
 }
+# Mesmas cores em #RRGGBB (p/ swatches HTML da legenda — KML_CORES está em
+# aabbggrr, ordem que o CSS não entende).
+FAIXA_HEX = {
+    "Restrição": "#C00000",
+    "Atenção": "#F2C80F",
+    "Normal": "#107C10",
+    "Fio d'água": "#95A0A3",
+    "Sem dado": "#9E9E9E",
+}
 KML_ICONES = {
     "Nordeste": "http://maps.google.com/mapfiles/kml/shapes/placemark_square.png",
     "SIN - Reservatório": "http://maps.google.com/mapfiles/kml/shapes/triangle.png",
     "SIN - Fio d'água": "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png",
 }
+# Nível 1 da pasta = Classificação (faixa); nível 2 = Grupo. "Fio d'água" só
+# tem o grupo "SIN - Fio d'água" dentro — as demais faixas têm Nordeste e
+# SIN - Reservatório. Ordem pedida pelo usuário: Fio d'água primeiro.
+FAIXAS_ORDEM = ["Fio d'água", "Restrição", "Atenção", "Normal", "Sem dado"]
+FAIXAS_ROTULO = {
+    "Restrição": "Restrição (<20%)",
+    "Atenção": "Atenção (20–50%)",
+    "Normal": "Normal (>50%)",
+    "Fio d'água": "Fio d'água (sem classificação)",
+    "Sem dado": "Sem dado",
+}
+GRUPOS_ORDEM = ["SIN - Fio d'água", "Nordeste", "SIN - Reservatório"]
+
+
+def _legenda_html():
+    swatches = "".join(
+        f"<div style='margin:2px 0'><span style='display:inline-block;width:12px;height:12px;"
+        f"background:{FAIXA_HEX[f]};border:1px solid #888;margin-right:6px;'></span>{escape(FAIXAS_ROTULO[f])}</div>"
+        for f in ("Restrição", "Atenção", "Normal", "Fio d'água")
+    )
+    return (
+        "<b>Cor — Classificação</b><br/>" + swatches +
+        "<br/><b>Forma — Grupo</b><br/>"
+        "Quadrado: Nordeste — Volume (%)<br/>"
+        "Triângulo: SIN – UHE c/ reservatório — Volume Útil (%)<br/>"
+        "Círculo: SIN – UHE a fio d'água — Nível (m)"
+    )
 
 
 def _valor_unidade(reg):
@@ -174,37 +210,52 @@ def _fmt_br(v, casas):
 
 def gerar_kmz(registros):
     estilos, usados = [], set()
-    corpo = {g: [] for g in KML_ICONES}
+    # corpo[faixa][grupo] = lista de placemarks — pastas aninhadas em 2 níveis
+    corpo = {}
     for r in registros:
-        faixa = r["faixa"]
-        chave = (r["grupo"], faixa)
+        faixa, grupo = r["faixa"], r["grupo"]
+        chave = (grupo, faixa)
         sid = f"s_{abs(hash(chave))}"
         if chave not in usados:
             usados.add(chave)
             estilos.append(
                 f"<Style id='{sid}'><IconStyle><color>{KML_CORES.get(faixa, KML_CORES['Sem dado'])}</color>"
-                f"<scale>0.9</scale><Icon><href>{KML_ICONES[r['grupo']]}</href></Icon></IconStyle>"
+                f"<scale>0.9</scale><Icon><href>{KML_ICONES[grupo]}</href></Icon></IconStyle>"
                 f"<LabelStyle><scale>0</scale></LabelStyle></Style>"
             )
         valor, _, rotulo = _valor_unidade(r)
-        casas = 2 if r["grupo"] == "SIN - Fio d'água" else 1
+        casas = 2 if grupo == "SIN - Fio d'água" else 1
         desc = (
             f"<b>{rotulo}:</b> {_fmt_br(valor, casas)}<br/>"
             f"<b>Estado:</b> {escape(r.get('uf') or '–')}<br/>"
             f"<b>Data do Dado:</b> {escape(r.get('data_med') or '–')}"
         )
-        corpo[r["grupo"]].append(
+        placemark = (
             f"<Placemark><name>{escape(r['nome'])}</name><styleUrl>#{sid}</styleUrl>"
             f"<description><![CDATA[{desc}]]></description>"
             f"<Point><coordinates>{r['lon']},{r['lat']},0</coordinates></Point></Placemark>"
         )
-    pastas = "".join(
-        f"<Folder><name>{escape(g)}</name>{''.join(pl)}</Folder>" for g, pl in corpo.items() if pl
-    )
+        corpo.setdefault(faixa, {}).setdefault(grupo, []).append(placemark)
+
+    pastas_faixa = []
+    for faixa in FAIXAS_ORDEM:
+        grupos = corpo.get(faixa)
+        if not grupos:
+            continue
+        subpastas = "".join(
+            f"<Folder><name>{escape(g)}</name>{''.join(grupos[g])}</Folder>"
+            for g in GRUPOS_ORDEM if grupos.get(g)
+        )
+        pastas_faixa.append(f"<Folder><name>{escape(FAIXAS_ROTULO.get(faixa, faixa))}</name>{subpastas}</Folder>")
+
+    legenda = _legenda_html()
+    pasta_legenda = f"<Folder><name>Legenda</name><description><![CDATA[{legenda}]]></description></Folder>"
     kml = (
         "<?xml version='1.0' encoding='UTF-8'?>"
         "<kml xmlns='http://www.opengis.net/kml/2.2'><Document>"
-        f"<name>Situação dos Reservatórios — Nordeste e SIN</name>{''.join(estilos)}{pastas}"
+        f"<name>Situação dos Reservatórios — Nordeste e SIN</name>"
+        f"<description><![CDATA[{legenda}]]></description>"
+        f"{''.join(estilos)}{pasta_legenda}{''.join(pastas_faixa)}"
         "</Document></kml>"
     )
     destino = RAIZ / "docs" / "reservatorios.kmz"
