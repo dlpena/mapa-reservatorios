@@ -204,7 +204,10 @@ var LIMITES = [
   [Math.max.apply(null, latitudes), Math.max.apply(null, longitudes)]
 ];
 mapa.fitBounds(LIMITES, {padding: [24, 24]});
-window.addEventListener("load", function () { mapa.invalidateSize(); mapa.fitBounds(LIMITES, {padding: [24, 24]}); });
+// Reaplica no próximo tick (não no evento "load" — por rodar depois do
+// fetch dos dados, ele já disparou; ver nota no carregador, fim do arquivo)
+// pra garantir que o container já tem o tamanho final antes de calcular.
+setTimeout(function () { mapa.invalidateSize(); mapa.fitBounds(LIMITES, {padding: [24, 24]}); }, 0);
 
 // Mapas base: claro (padrão) e satélite (Esri World Imagery + rótulos claros)
 var baseClaro = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
@@ -274,29 +277,29 @@ function aplicarFiltro() {
 aplicarFiltro();
 
 Object.keys(camadas).forEach(function (k) { camadas[k].addTo(mapa); });
-// O controle de grupos é criado no evento load, quando o tamanho real da tela é
-// conhecido. No mobile ele recolhe APENAS pelo X (igual à legenda) — desligamos
-// o recolhimento nativo ao clicar no mapa.
-window.addEventListener("load", function () {
-  var movel = window.innerWidth < 700;
-  var bases = {"Mapa": baseClaro, "Satélite": baseSatelite};
-  var sobreposicoes = {};
-  Object.keys(camadas).forEach(function (k) { sobreposicoes[k] = camadas[k]; });
-  sobreposicoes["Divisão estadual"] = camadaUF;
-  var ctrlGrupos = L.control.layers(bases, sobreposicoes, {collapsed: movel, position: "topright"}).addTo(mapa);
-  if (movel) {
-    mapa.off("click", ctrlGrupos.collapse, ctrlGrupos);
-    var form = ctrlGrupos.getContainer().querySelector(".leaflet-control-layers-list");
-    var cab = document.createElement("div");
-    cab.className = "cabecalho-grupos";
-    cab.innerHTML = "<span>Camadas</span><span class='fechar-x' title='Recolher camadas'>✕</span>";
-    form.insertBefore(cab, form.firstChild);
-    cab.querySelector(".fechar-x").addEventListener("click", function (e) {
-      L.DomEvent.stop(e);
-      ctrlGrupos.collapse();
-    });
-  }
-});
+// iniciarMapa já roda depois do fetch dos dados — nesse ponto a página (e o
+// Leaflet) já estão totalmente carregados, então não há por que esperar o
+// evento "load" (que registrado tarde demais nunca dispara: ver nota no
+// carregador, no fim do arquivo). No mobile o controle recolhe APENAS pelo
+// X (igual à legenda) — desligamos o recolhimento nativo ao clicar no mapa.
+var movel = window.innerWidth < 700;
+var bases = {"Mapa": baseClaro, "Satélite": baseSatelite};
+var sobreposicoes = {};
+Object.keys(camadas).forEach(function (k) { sobreposicoes[k] = camadas[k]; });
+sobreposicoes["Divisão estadual"] = camadaUF;
+var ctrlGrupos = L.control.layers(bases, sobreposicoes, {collapsed: movel, position: "topright"}).addTo(mapa);
+if (movel) {
+  mapa.off("click", ctrlGrupos.collapse, ctrlGrupos);
+  var formGrupos = ctrlGrupos.getContainer().querySelector(".leaflet-control-layers-list");
+  var cabGrupos = document.createElement("div");
+  cabGrupos.className = "cabecalho-grupos";
+  cabGrupos.innerHTML = "<span>Camadas</span><span class='fechar-x' title='Recolher camadas'>✕</span>";
+  formGrupos.insertBefore(cabGrupos, formGrupos.firstChild);
+  cabGrupos.querySelector(".fechar-x").addEventListener("click", function (e) {
+    L.DomEvent.stop(e);
+    ctrlGrupos.collapse();
+  });
+}
 
 // Cartões-resumo: contadores dinâmicos (refletem grupos ligados e o toggle de
 // medições antigas) + filtro por faixa ao clicar
@@ -395,9 +398,9 @@ legenda.onAdd = function () {
   var cabecalho = div.querySelector(".legenda-cabecalho");
   cabecalho.addEventListener("click", alternarLegenda);
   cabecalho.addEventListener("touchend", alternarLegenda);
-  window.addEventListener("load", function () {
-    if (window.innerWidth < 700 && !div.classList.contains("fechada")) alternarLegenda();
-  });
+  // Direto, sem esperar "load" (por rodar após o fetch dos dados, esse
+  // evento já disparou — ver nota no carregador, fim do arquivo).
+  if (window.innerWidth < 700 && !div.classList.contains("fechada")) alternarLegenda();
   return div;
 };
 legenda.addTo(mapa);
@@ -698,6 +701,11 @@ async function carregarDados() {
   throw ultimoErro || new Error("nenhuma fonte de dados respondeu");
 }
 
+// iniciarMapa só roda aqui, depois do fetch — ou seja, bem depois do evento
+// "load" da página (script/CSS já carregados há tempo). Um listener de
+// "load" registrado dentro de iniciarMapa NUNCA dispara nesse caso (é bug:
+// o evento já passou) — por isso o controle de camadas sumia do mapa em
+// produção. Correção: rodar esse tipo de código direto, sem esperar "load".
 carregarDados().then(function (payload) {
   iniciarMapa(payload.registros, payload.gerado_em);
 }).catch(function (e) {
