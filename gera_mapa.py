@@ -1,10 +1,24 @@
 # -*- coding: utf-8 -*-
-"""Gera docs/index.html: mapa da situação dos reservatórios (Nordeste + SIN).
+"""Gera docs/dados.json (+ docs/index.html): mapa dos reservatórios (NE + SIN).
 
-Consulta o data lake da ANA (view dbo.vw_reservatoriopnt) e produz um HTML
-estático interativo (Leaflet). Forma do marcador = grupo; cor = faixa.
+Consulta o data lake da ANA e produz um HTML estático interativo (Leaflet)
+que busca os dados via fetch em tempo de execução — não são mais embutidos
+no HTML. Isso separa duas coisas que antes ficavam acopladas:
+
+  - docs/index.html: o "app" (mapa, filtros, exportação). Só muda quando o
+    template.html do projeto é editado — não a cada execução diária.
+  - docs/dados.json: o dado do dia. O template.html tenta buscá-lo primeiro
+    via raw.githubusercontent.com (serve o conteúdo direto do Git, sem
+    passar pelo pipeline de build do GitHub Pages) e só cai para o caminho
+    relativo (servido pelo Pages) se isso falhar.
+
+Motivo: em 06/08/2026 o GitHub Pages ficou com o *build* travado por horas
+(incidente githubstatus.com) enquanto o `git push` continuava funcionando
+normalmente. Com os dados vindo do Git direto, a atualização diária deixa
+de depender do Pages "publicar" — só precisa do push ter dado certo.
+
 Rodar com o python do venv do projeto "app bancos ANA" (tem pyodbc/pandas
-e a auth Entra ID em cache). Em caso de falha, preserva o HTML anterior
+e a auth Entra ID em cache). Em caso de falha, preserva a saída anterior
 e sai com código != 0 para o publicador não commitar nada.
 """
 
@@ -16,7 +30,6 @@ import zipfile
 from datetime import datetime
 from html import escape
 from pathlib import Path
-from string import Template
 
 RAIZ = Path(__file__).resolve().parent
 APP_BANCOS = r"C:\Users\diego\Projects\claude-code\app bancos ANA"
@@ -95,21 +108,39 @@ def consultar():
     df = read_sql(SQL, conn)
     if len(df) < 500:  # sanidade: hoje são ~706; menos que isso indica problema na fonte
         raise RuntimeError(f"consulta retornou só {len(df)} linhas — abortando por seguranca")
-    df = df.where(df.notna(), None)
-    return df.to_dict(orient="records")
+    registros = df.to_dict(orient="records")
+    # json.dumps emite NaN como literal `NaN` — inválido em JSON estrito.
+    # Isso não dava problema quando os dados eram embutidos direto no <script>
+    # (NaN é um identificador JS válido ali), mas agora que o navegador faz
+    # JSON.parse() de verdade num fetch, um único NaN quebra o parse inteiro.
+    # `v != v` é o teste clássico de NaN (é o único valor que não é igual a
+    # si mesmo) — mais simples que importar math só para isso.
+    for r in registros:
+        for k, v in r.items():
+            if isinstance(v, float) and v != v:
+                r[k] = None
+    return registros
 
 
-def gerar_html(registros):
-    template = Template((RAIZ / "template.html").read_text(encoding="utf-8"))
-    html = template.substitute(
-        DADOS_JSON=json.dumps(registros, ensure_ascii=False, separators=(",", ":")),
-        GERADO_EM=datetime.now().strftime("%d/%m/%Y %H:%M"),
-    )
-    destino = RAIZ / "docs" / "index.html"
+def _escreve_atomico(destino, conteudo):
     tmp = destino.with_suffix(".tmp")
-    tmp.write_text(html, encoding="utf-8")
-    tmp.replace(destino)  # troca atômica: nunca deixa index.html pela metade
-    return destino
+    tmp.write_text(conteudo, encoding="utf-8")
+    tmp.replace(destino)  # troca atômica: nunca deixa o arquivo pela metade
+
+
+def gerar_saida(registros):
+    payload = {
+        "gerado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "registros": registros,
+    }
+    dados_json = RAIZ / "docs" / "dados.json"
+    _escreve_atomico(dados_json, json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+
+    # index.html não leva mais os dados embutidos — é cópia direta do
+    # template (muda só quando o template.html é editado, não a cada rodada).
+    index_html = RAIZ / "docs" / "index.html"
+    _escreve_atomico(index_html, (RAIZ / "template.html").read_text(encoding="utf-8"))
+    return dados_json, index_html
 
 
 # Cores das faixas em formato KML (aabbggrr) e ícones por grupo
@@ -222,11 +253,11 @@ def gerar_shapefile(registros):
 def main():
     try:
         registros = consultar()
-        destino = gerar_html(registros)
+        dados_json, index_html = gerar_saida(registros)
         gerar_kmz(registros)
         gerar_shapefile(registros)
-        logging.info("ok: %d reservatorios -> %s (+kmz +shp)", len(registros), destino)
-        print(f"OK: {len(registros)} reservatorios (html + kmz + shp)")
+        logging.info("ok: %d reservatorios -> %s (+%s +kmz +shp)", len(registros), dados_json, index_html)
+        print(f"OK: {len(registros)} reservatorios (json + html + kmz + shp)")
         return 0
     except Exception:
         logging.exception("falha na geracao do mapa")

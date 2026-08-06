@@ -48,7 +48,14 @@
   }
   #resumo-filtros b { font-weight: 700; }
 
-  #map { flex: 1; min-height: 300px; }
+  #map { flex: 1; min-height: 300px; position: relative; }
+  #carregando {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 1000; background: #fff; color: #555; font-size: 13px; text-align: center;
+    padding: 14px 20px; border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,.25);
+    max-width: 260px; line-height: 1.5;
+  }
+  #carregando b { color: #C00000; }
 
   .marcador svg { display: block; }
   .esmaecido { opacity: .40; }
@@ -120,18 +127,23 @@
 <body>
 <header>
   <h1>Situação dos Reservatórios — Nordeste e SIN</h1>
-  <span class="sub">Fonte: ANA (SAR) · Atualizado em $GERADO_EM · Faixas: Restrição &lt;20% · Atenção 20–50% · Normal &gt;50%</span>
+  <span class="sub">Fonte: ANA (SAR) · <span id="carimbo-data">carregando dados…</span> · Faixas: Restrição &lt;20% · Atenção 20–50% · Normal &gt;50%</span>
 </header>
 
 <div id="cards"></div>
 <div id="resumo-filtros"></div>
-<div id="map"></div>
+<div id="map"><div id="carregando">Carregando dados atualizados…</div></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://unpkg.com/@mapbox/shp-write@0.4.3/shpwrite.js"></script>
 <script>
-var DADOS = $DADOS_JSON;
+// Todo o app fica dentro desta função, chamada só depois que os dados (JSON)
+// terminam de carregar — ver o carregador no fim do arquivo.
+function iniciarMapa(DADOS, geradoEm) {
+document.getElementById("carimbo-data").textContent = "Atualizado em " + geradoEm;
+var carregando = document.getElementById("carregando");
+if (carregando) carregando.remove();
 
 var CORES = {
   "Restrição": "#C00000",
@@ -504,6 +516,53 @@ exportar.onAdd = function () {
   return div;
 };
 exportar.addTo(mapa);
+
+}  // fim de iniciarMapa
+
+// ---------- Carregamento dos dados ----------
+// Tenta primeiro o Git direto (raw.githubusercontent.com), que não passa
+// pelo pipeline de build do GitHub Pages — se o Pages estiver com o deploy
+// travado (já aconteceu), os dados ainda chegam frescos por aqui. Cai para
+// o caminho relativo (servido pelo próprio Pages) se isso falhar. Passe
+// ?nocdn na URL para forçar o caminho relativo (usado em testes locais).
+//
+// Timeout curto (4s) em cada tentativa: numa rede que bloqueia o domínio
+// silenciosamente (proxy corporativo, por ex.) o fetch pode ficar pendurado
+// sem nunca rejeitar — sem o timeout, o mapa nunca cairia para o fallback.
+function buscarComTimeout(url, ms) {
+  var controlador = new AbortController();
+  var estourou = setTimeout(function () { controlador.abort(); }, ms);
+  return fetch(url, {cache: "no-store", signal: controlador.signal}).finally(function () {
+    clearTimeout(estourou);
+  });
+}
+
+async function carregarDados() {
+  var vela = "t=" + Date.now();  // descarta cache de CDN/navegador
+  var relativo = "dados.json?" + vela;
+  var direto = "https://raw.githubusercontent.com/dlpena/mapa-reservatorios/main/docs/dados.json?" + vela;
+  var fontes = (location.search.indexOf("nocdn") >= 0) ? [relativo] : [direto, relativo];
+  var ultimoErro = null;
+  for (var i = 0; i < fontes.length; i++) {
+    try {
+      var resp = await buscarComTimeout(fontes[i], 4000);
+      if (!resp.ok) throw new Error("HTTP " + resp.status + " em " + fontes[i]);
+      return await resp.json();
+    } catch (e) { ultimoErro = e; }
+  }
+  throw ultimoErro || new Error("nenhuma fonte de dados respondeu");
+}
+
+carregarDados().then(function (payload) {
+  iniciarMapa(payload.registros, payload.gerado_em);
+}).catch(function (e) {
+  var carregando = document.getElementById("carregando");
+  if (carregando) {
+    carregando.innerHTML = "<b>Falha ao carregar os dados atualizados.</b><br>" +
+      "Verifique sua conexão e recarregue a página." +
+      "<br><small style='color:#999'>" + e.message + "</small>";
+  }
+});
 </script>
 </body>
 </html>
