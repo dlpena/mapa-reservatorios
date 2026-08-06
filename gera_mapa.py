@@ -262,22 +262,28 @@ def gerar_legenda_png():
         else:
             d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=cinza, outline=(255, 255, 255, 255), width=e // 2 or 1)
 
+    # Espaçamento generoso o bastante p/ não "encavalar" texto mesmo depois
+    # do KML reduzir esta imagem na tela (a Terra/Earth mostra menor que o
+    # raster nativo — texto justo no raster vira sobreposição visual ao
+    # reduzir). Gap título->1ª linha maior que entre linhas (hierarquia).
     y = 16 * e
     d.text((12 * e, y), "Cor — Classificação", font=f_titulo, fill=preto)
+    y += 22 * e
     for faixa in ("Restrição", "Atenção", "Normal", "Fio d'água"):
-        y += 18 * e
         d.rectangle([12 * e, y - 5 * e, 24 * e, y + 7 * e], fill=_hex_rgba(FAIXA_HEX[faixa]), outline=(136, 136, 136, 255))
         d.text((30 * e, y - 5 * e), FAIXAS_ROTULO[faixa], font=f_texto, fill=preto)
-    y += 24 * e
+        y += 19 * e
+    y += 3 * e
     d.text((12 * e, y), "Forma — Grupo", font=f_titulo, fill=preto)
+    y += 22 * e
     for rotulo, tipo in (
         ("Nordeste — Volume (%)", "quadrado"),
         ("SIN – UHE c/ reserv. — Volume Útil (%)", "triangulo"),
         ("SIN – UHE a fio d'água — Nível (m)", "circulo"),
     ):
-        y += 18 * e
         forma(18 * e, y + 1 * e, tipo)
         d.text((30 * e, y - 5 * e), rotulo, font=f_texto, fill=preto)
+        y += 19 * e
 
     buf = BytesIO()
     img.save(buf, format="PNG")
@@ -346,15 +352,15 @@ def gerar_kmz(registros):
     # visível (diferente de uma pasta com <description>, que só aparece em
     # balão ao clicar). overlayXY 0,0 = canto inferior-esquerdo da IMAGEM;
     # screenXY 0.01,0.02 = quase colado no canto inferior-esquerdo da TELA.
-    # O PNG é gerado a 2x (500x380 px reais, p/ ficar nítido). Tamanho exibido
-    # em tela: 300x230 — ainda bem menor que o original "muito grande"
-    # (500x380) e maior que a metade exata (250x190, ficou pequeno demais).
+    # O PNG é gerado a 2x (500x380 px reais, p/ ficar nítido) — exibido a
+    # 250x190 (metade exata do raster). Esse tamanho já estava certo; o que
+    # precisava de ajuste era o espaçamento interno do texto, não isto.
     overlay_legenda = (
         "<ScreenOverlay><name>Legenda</name>"
         "<Icon><href>legenda.png</href></Icon>"
         "<overlayXY x='0' y='0' xunits='fraction' yunits='fraction'/>"
         "<screenXY x='0.01' y='0.02' xunits='fraction' yunits='fraction'/>"
-        "<size x='300' y='230' xunits='pixels' yunits='pixels'/>"
+        "<size x='250' y='190' xunits='pixels' yunits='pixels'/>"
         "</ScreenOverlay>"
     )
     kml = (

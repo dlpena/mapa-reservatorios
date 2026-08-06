@@ -497,31 +497,35 @@ function gerarLegendaPngBlob() {
   ctx.closePath();
   ctx.fill(); ctx.stroke();
 
+  // Gap título->1ª linha maior que entre linhas (hierarquia clara, sem
+  // "encavalar" o texto quando o KML reduz esta imagem na tela).
   var fonteFamilia = '"Segoe UI", Arial, sans-serif';
   ctx.fillStyle = "#111";
   ctx.font = "bold 13px " + fonteFamilia;
-  var y = 18;
+  var y = 16;
   ctx.fillText("Cor — Classificação", 12, y);
+  y += 24;
   ctx.font = "12px " + fonteFamilia;
   ["Restrição", "Atenção", "Normal", "Fio d'água"].forEach(function (f) {
-    y += 20;
     ctx.fillStyle = CORES[f];
     ctx.fillRect(12, y - 11, 12, 12);
     ctx.strokeStyle = "#888"; ctx.strokeRect(12, y - 11, 12, 12);
     ctx.fillStyle = "#111";
     ctx.fillText(FAIXAS_ROTULO[f], 30, y);
+    y += 19;
   });
-  y += 26;
+  y += 5;
   ctx.font = "bold 13px " + fonteFamilia;
   ctx.fillText("Forma — Grupo", 12, y);
+  y += 24;
   ctx.font = "12px " + fonteFamilia;
   [["Nordeste — Volume (%)", "quadrado"],
    ["SIN – UHE c/ reserv. — Volume Útil (%)", "triangulo"],
    ["SIN – UHE a fio d'água — Nível (m)", "circulo"]].forEach(function (par) {
-    y += 20;
     desenharFormaLegenda(ctx, par[1], 18, y - 4, 6);
     ctx.fillStyle = "#111";
     ctx.fillText(par[0], 30, y);
+    y += 19;
   });
 
   return new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
@@ -576,13 +580,13 @@ function kmlDosVisiveis() {
   // ScreenOverlay: imagem fixa no canto inferior esquerdo da tela, sempre
   // visível — ver gerarLegendaPngBlob() (o PNG é adicionado ao zip em
   // exportarKMZ, aqui só a referência ao arquivo).
-  // O PNG é gerado a 2x (500x380 px reais). Tamanho exibido em tela: 300x230
-  // — bem menor que o original "muito grande" (500x380) e maior que a
-  // metade exata (250x190, ficou pequeno demais).
+  // O PNG é gerado a 2x (500x380 px reais) — exibido a 250x190 (metade
+  // exata do raster). O tamanho já estava certo; o ajuste era no
+  // espaçamento interno do texto (ver gerarLegendaPngBlob).
   var overlayLegenda = "<ScreenOverlay><name>Legenda</name><Icon><href>legenda.png</href></Icon>" +
     "<overlayXY x='0' y='0' xunits='fraction' yunits='fraction'/>" +
     "<screenXY x='0.01' y='0.02' xunits='fraction' yunits='fraction'/>" +
-    "<size x='300' y='230' xunits='pixels' yunits='pixels'/></ScreenOverlay>";
+    "<size x='250' y='190' xunits='pixels' yunits='pixels'/></ScreenOverlay>";
   var kml = "<?xml version='1.0' encoding='UTF-8'?>" +
     "<kml xmlns='http://www.opengis.net/kml/2.2'><Document>" +
     "<name>Situação dos Reservatórios — Nordeste e SIN</name>" +
