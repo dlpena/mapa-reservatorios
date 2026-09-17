@@ -210,16 +210,20 @@ mapa.fitBounds(LIMITES, {padding: [24, 24]});
 setTimeout(function () { mapa.invalidateSize(); mapa.fitBounds(LIMITES, {padding: [24, 24]}); }, 0);
 
 // Mapas base: claro (padrão) e satélite (Esri World Imagery + rótulos claros)
-var baseClaro = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-  attribution: "&copy; OpenStreetMap &copy; CARTO",
-  maxZoom: 18
+// CARTO (basemaps.cartocdn.com) passou a exigir API key nos tiles gratuitos
+// (constatado em 17/09/2026 — tiles vinham com marca d'água "API KEY REQUIRED");
+// trocado por Esri Canvas, que não exige chave.
+var baseClaro = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
+  attribution: "&copy; Esri",
+  maxZoom: 18,
+  maxNativeZoom: 16
 }).addTo(mapa);
 var baseSatelite = L.layerGroup([
   L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
     attribution: "Imagens &copy; Esri, Maxar, Earthstar Geographics",
     maxZoom: 18
   }),
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", {maxZoom: 18})
+  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", {maxZoom: 18, maxNativeZoom: 16})
 ]);
 
 // Divisão estadual (IBGE, malha simplificada em docs/brasil_uf.json).
