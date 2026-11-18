@@ -657,14 +657,52 @@ function exportarSHP() {
   } catch (e) { window.location.href = "reservatorios_shp.zip"; }
 }
 
+// CSV no padrão do Excel em português: ";" como separador, vírgula decimal e
+// BOM UTF-8 (sem ele o Excel lê os acentos errado). Mesmas colunas e
+// formatação do arquivo gerado no Python (gera_mapa.py: gerar_csv).
+var CSV_COLUNAS = ["Nome", "Grupo", "Tipo", "UF", "Rio", "Bacia", "Latitude", "Longitude",
+  "Classificação", "Indicador", "Valor", "Data do Dado", "Dias desde a medição"];
+
+function csvCampo(v) {
+  var s = (v === null || v === undefined) ? "" : String(v);
+  return /[;"\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function csvNum(v, casas) {
+  if (v === null || v === undefined) return "";
+  return (casas === undefined ? String(v) : v.toFixed(casas)).replace(".", ",");
+}
+
+function csvDosVisiveis() {
+  var linhas = [CSV_COLUNAS.map(csvCampo).join(";")];
+  registrosVisiveis().forEach(function (d) {
+    var fio = d.grupo === "SIN - Fio d'água";
+    var vr = valorRotulo(d);
+    linhas.push([
+      d.nome, d.grupo, d.tipo, d.uf, d.rio, d.bacia,
+      csvNum(d.lat), csvNum(d.lon),
+      d.faixa, vr.rotulo, csvNum(fio ? d.cota : d.pct, fio ? 2 : 1),
+      d.data_med, d.dias
+    ].map(csvCampo).join(";"));
+  });
+  return "﻿" + linhas.join("\r\n") + "\r\n";
+}
+
+function exportarCSV() {
+  try {
+    baixarBlob(new Blob([csvDosVisiveis()], {type: "text/csv;charset=utf-8"}), "reservatorios.csv");
+  } catch (e) { window.location.href = "reservatorios.csv"; }
+}
+
 var exportar = L.control({position: "bottomright"});
 exportar.onAdd = function () {
   var div = L.DomUtil.create("div", "exportar");
-  div.innerHTML = "<b>Baixar:</b> <a id='exp-kmz'>KMZ</a><a id='exp-shp'>Shapefile</a>" +
+  div.innerHTML = "<b>Baixar:</b> <a id='exp-kmz'>KMZ</a><a id='exp-shp'>Shapefile</a><a id='exp-csv'>CSV</a>" +
                   "<div class='nota'>respeita os filtros ativos</div>";
   L.DomEvent.disableClickPropagation(div);
   div.querySelector("#exp-kmz").addEventListener("click", exportarKMZ);
   div.querySelector("#exp-shp").addEventListener("click", exportarSHP);
+  div.querySelector("#exp-csv").addEventListener("click", exportarCSV);
   return div;
 };
 exportar.addTo(mapa);

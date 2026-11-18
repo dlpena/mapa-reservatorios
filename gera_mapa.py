@@ -380,6 +380,59 @@ def gerar_kmz(registros):
     return destino
 
 
+# CSV no padrão do Excel em português: separador ";", vírgula decimal e
+# UTF-8 com BOM (sem o BOM o Excel lê os acentos como Latin-1). Mesmas
+# colunas e formatação do botão "CSV" do mapa (template.html: csvDosVisiveis).
+CSV_COLUNAS = [
+    "Nome", "Grupo", "Tipo", "UF", "Rio", "Bacia", "Latitude", "Longitude",
+    "Classificação", "Indicador", "Valor", "Data do Dado", "Dias desde a medição",
+]
+
+
+def _num_csv(v, casas=None):
+    if v is None:
+        return ""
+    if casas is not None:
+        texto = f"{v:.{casas}f}"
+    else:
+        # mesma saída do String(v) do JavaScript: -52.0 vira "-52"
+        texto = repr(float(v))
+        if texto.endswith(".0"):
+            texto = texto[:-2]
+    return texto.replace(".", ",")
+
+
+def linhas_csv(registros):
+    for r in registros:
+        valor, _, indicador = _valor_unidade(r)
+        casas = 2 if r["grupo"] == "SIN - Fio d'água" else 1
+        yield [
+            r["nome"], r["grupo"], r.get("tipo") or "", r.get("uf") or "",
+            r.get("rio") or "", r.get("bacia") or "",
+            _num_csv(r["lat"]), _num_csv(r["lon"]),
+            r["faixa"], indicador, _num_csv(valor, casas),
+            r.get("data_med") or "", "" if r.get("dias") is None else str(int(r["dias"])),
+        ]
+
+
+def gerar_csv(registros):
+    import csv
+
+    destino = RAIZ / "docs" / "reservatorios.csv"
+    tmp = destino.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f, delimiter=";", lineterminator="\r\n")
+        w.writerow(CSV_COLUNAS)
+        w.writerows(linhas_csv(registros))
+    tmp.replace(destino)
+    # sanidade: relê o arquivo gravado e confere o número de linhas
+    with open(destino, encoding="utf-8-sig", newline="") as f:
+        n = sum(1 for _ in csv.reader(f, delimiter=";")) - 1
+    if n != len(registros):
+        raise RuntimeError(f"csv com {n} registros != {len(registros)}")
+    return destino
+
+
 PRJ_WGS84 = (
     'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,'
     '298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]'
@@ -423,8 +476,9 @@ def main():
         dados_json, index_html = gerar_saida(registros)
         gerar_kmz(registros)
         gerar_shapefile(registros)
-        logging.info("ok: %d reservatorios -> %s (+%s +kmz +shp)", len(registros), dados_json, index_html)
-        print(f"OK: {len(registros)} reservatorios (json + html + kmz + shp)")
+        gerar_csv(registros)
+        logging.info("ok: %d reservatorios -> %s (+%s +kmz +shp +csv)", len(registros), dados_json, index_html)
+        print(f"OK: {len(registros)} reservatorios (json + html + kmz + shp + csv)")
         return 0
     except Exception:
         logging.exception("falha na geracao do mapa")
